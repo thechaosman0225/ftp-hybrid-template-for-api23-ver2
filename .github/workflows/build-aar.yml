@@ -1,10 +1,10 @@
-name: Build Libraries as JARs
+name: Build Android Libraries (AARs)
 
 on:
-  workflow_dispatch: # Manual trigger
+  workflow_dispatch: # Manual trigger only
 
 jobs:
-  build-jars:
+  build-aars:
     runs-on: ubuntu-latest
 
     steps:
@@ -26,18 +26,17 @@ jobs:
       - name: Build all library modules (release)
         run: ./gradlew :ftp-engine-core:assembleRelease :ftp-hybrid-server:assembleRelease :mina-android-patched:assembleRelease
 
-      - name: Extract JARs from AARs
+      - name: Collect AAR artifacts
         run: |
           mkdir -p build/artifacts
           for module in ftp-engine-core ftp-hybrid-server mina-android-patched; do
-            aar_path="$module/build/outputs/aar/$module-release.aar"
-            jar_path="build/artifacts/$module.jar"
-            unzip -p "$aar_path" classes.jar > "$jar_path"
-            echo "Created JAR: $jar_path"
+            aar_file="$module/build/outputs/aar/$module-release.aar"
+            cp "$aar_file" "build/artifacts/$module-release.aar"
+            echo "Collected AAR: build/artifacts/$module-release.aar"
           done
 
-      - name: Upload JAR Artifacts
+      - name: Upload AAR Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: android-library-jars
+          name: android-library-aars
           path: build/artifacts/
