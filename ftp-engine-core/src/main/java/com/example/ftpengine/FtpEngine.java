@@ -18,23 +18,14 @@ public class FtpEngine {
 
         IoHandler handler = new FtpIoHandlerAndroid(processor);
 
-        // Instantiate the AndroidNioSocketAcceptor with IoHandler
+        // Android-compatible acceptor
         this.acceptor = new AndroidNioSocketAcceptor(handler);
     }
 
+    /**
+     * Start FTP server.
+     * IMPORTANT: bind to 0.0.0.0 so other devices can connect.
+     */
     public void start(int port) throws Exception {
-        acceptor.bind(new InetSocketAddress(port));
-        System.out.println("FtpEngine started on port " + port);
-    }
-
-    public void stop() {
-        if (acceptor != null) {
-            acceptor.shutdown();   // ✅ stop server
-        }
-        System.out.println("FtpEngine stopped");
-    }
-
-    public FtpCommandProcessor getProcessor() {
-        return processor;
-    }
-}
+        acceptor.bind(new InetSocketAddress("0.0.0.0", port));
+        System.out.println("FtpEngine started on port
