@@ -1,76 +1,68 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    android:orientation="vertical"
-    android:padding="16dp"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
 
-    <!-- FTP Server Controls -->
     <Button
         android:id="@+id/btnChooseFolder"
-        android:text="Choose FTP Root Folder"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"/>
+        android:layout_height="wrap_content"
+        android:text="Choose FTP Root Folder" />
 
     <Button
         android:id="@+id/btnStartServer"
-        android:text="Start FTP Server"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"/>
+        android:layout_marginTop="8dp"
+        android:text="Start FTP Server" />
 
     <Button
         android:id="@+id/btnStopServer"
-        android:text="Stop FTP Server"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"/>
+        android:layout_marginTop="8dp"
+        android:text="Stop FTP Server" />
 
-    <!-- Log Output -->
     <ScrollView
         android:id="@+id/scrollView"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginTop="16dp">
+        android:layout_marginTop="12dp">
 
         <TextView
             android:id="@+id/txtLog"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textSize="14sp"
-            android:textColor="#000000"/>
+            android:textSize="14sp" />
     </ScrollView>
 
-    <!-- Account Creator -->
     <TextView
-        android:id="@+id/txtInfo"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textColor="#000"
-        android:textSize="14sp"
-        android:padding="8dp"
-        android:text="Default account: admin / admin"/>
+        android:text="Add FTP User"
+        android:textStyle="bold"
+        android:paddingTop="8dp" />
 
     <EditText
         android:id="@+id/etUsername"
-        android:hint="Username"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"/>
+        android:layout_height="wrap_content"
+        android:hint="Username" />
 
     <EditText
         android:id="@+id/etPassword"
-        android:hint="Password"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:inputType="textPassword"/>
+        android:hint="Password"
+        android:inputType="textPassword" />
 
     <Button
         android:id="@+id/btnAddUser"
-        android:text="Add User"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"/>
-
+        android:layout_marginTop="8dp"
+        android:text="Add User" />
 </LinearLayout>
