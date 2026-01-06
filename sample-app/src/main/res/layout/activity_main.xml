@@ -6,6 +6,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
+    <!-- FTP Server Controls -->
     <Button
         android:id="@+id/btnChooseFolder"
         android:text="Choose FTP Root Folder"
@@ -26,7 +27,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"/>
 
-    <!-- FIXED: Added ID -->
+    <!-- Log Output -->
     <ScrollView
         android:id="@+id/scrollView"
         android:layout_width="match_parent"
@@ -41,5 +42,35 @@
             android:textSize="14sp"
             android:textColor="#000000"/>
     </ScrollView>
+
+    <!-- Account Creator -->
+    <TextView
+        android:id="@+id/txtInfo"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="#000"
+        android:textSize="14sp"
+        android:padding="8dp"
+        android:text="Default account: admin / admin"/>
+
+    <EditText
+        android:id="@+id/etUsername"
+        android:hint="Username"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"/>
+
+    <EditText
+        android:id="@+id/etPassword"
+        android:hint="Password"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:inputType="textPassword"/>
+
+    <Button
+        android:id="@+id/btnAddUser"
+        android:text="Add User"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"/>
 
 </LinearLayout>
