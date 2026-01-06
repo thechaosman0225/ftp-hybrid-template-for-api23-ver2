@@ -9,7 +9,7 @@ import java.util.Locale;
 
 /**
  * Fully patched minimal FTP command processor for Android.
- * Passive mode only (ACTIVE disabled).
+ * Passive mode only (ACTIVE disabled) with public access to user manager.
  */
 public class FtpCommandProcessor {
 
@@ -22,7 +22,6 @@ public class FtpCommandProcessor {
     }
 
     /* ===================== Core Reply ===================== */
-
     private void reply(IoSession session, String msg) {
         try {
             session.write((msg + "\r\n").getBytes(StandardCharsets.UTF_8));
@@ -32,7 +31,6 @@ public class FtpCommandProcessor {
     }
 
     /* ===================== Command Entry ===================== */
-
     public void handle(IoSession session, FtpSessionContext ctx, String line) {
         if (line == null) return;
 
@@ -40,7 +38,7 @@ public class FtpCommandProcessor {
         String cmd = parts[0].toUpperCase(Locale.ROOT);
         String arg = (parts.length > 1 ? parts[1] : null);
 
-        /* ---- Login enforcement ---- */
+        // Enforce login
         if (!ctx.loggedIn &&
                 !(cmd.equals("USER") || cmd.equals("PASS") || cmd.equals("QUIT"))) {
             reply(session, "530 Please login with USER and PASS");
@@ -49,7 +47,6 @@ public class FtpCommandProcessor {
 
         try {
             switch (cmd) {
-
                 case "USER":
                     ctx.username = arg;
                     reply(session, "331 User name okay, need password");
@@ -122,7 +119,6 @@ public class FtpCommandProcessor {
     }
 
     /* ===================== Helpers ===================== */
-
     private void changeDirectory(IoSession session, FtpSessionContext ctx, String arg) throws Exception {
         if (arg == null) {
             reply(session, "501 Missing directory");
@@ -145,7 +141,6 @@ public class FtpCommandProcessor {
     }
 
     /* ===================== Passive Mode ===================== */
-
     private void handlePasv(IoSession session, FtpSessionContext ctx) {
         try {
             ServerSocket ss = new ServerSocket(0);
@@ -176,7 +171,6 @@ public class FtpCommandProcessor {
     }
 
     /* ===================== Data Commands ===================== */
-
     private void handleList(IoSession session, FtpSessionContext ctx) throws Exception {
         reply(session, "150 Opening data connection");
 
@@ -187,9 +181,7 @@ public class FtpCommandProcessor {
         }
 
         StringBuilder sb = new StringBuilder();
-        for (String f : fs.list(ctx.cwd)) {
-            sb.append(f).append("\r\n");
-        }
+        for (String f : fs.list(ctx.cwd)) sb.append(f).append("\r\n");
 
         data.getOutputStream().write(sb.toString().getBytes(StandardCharsets.UTF_8));
         data.close();
@@ -243,11 +235,9 @@ public class FtpCommandProcessor {
     }
 
     /* ===================== Data Utilities ===================== */
-
     private Socket waitForData(FtpSessionContext ctx) throws InterruptedException {
         for (int i = 0; i < 50; i++) {
-            if (ctx.passiveDataSocket != null)
-                return ctx.passiveDataSocket;
+            if (ctx.passiveDataSocket != null) return ctx.passiveDataSocket;
             Thread.sleep(100);
         }
         return null;
@@ -258,5 +248,13 @@ public class FtpCommandProcessor {
         ctx.activeDataSocket = null;
         ctx.dataHost = null;
         ctx.dataPort = 0;
+    }
+
+    /* ===================== Public Access ===================== */
+    /**
+     * Allow external classes (e.g., MainActivity) to access user manager.
+     */
+    public FtpUserManager getUserManager() {
+        return users;
     }
 }
