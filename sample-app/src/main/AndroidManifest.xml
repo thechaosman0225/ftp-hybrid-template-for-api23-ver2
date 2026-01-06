@@ -8,7 +8,7 @@
 
     <application
         android:allowBackup="true"
-     android:usesCleartextTraffic="true"
+        android:usesCleartextTraffic="true"
         android:label="Sample FTP App"
         android:theme="@style/Theme.AppCompat.Light.NoActionBar">
 
