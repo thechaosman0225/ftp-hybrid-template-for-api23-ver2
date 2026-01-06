@@ -28,4 +28,20 @@ public class FtpEngine {
      */
     public void start(int port) throws Exception {
         acceptor.bind(new InetSocketAddress("0.0.0.0", port));
-        System.out.println("FtpEngine started on port
+        System.out.println("FtpEngine started on port " + port);
+    }
+
+    /**
+     * Stop FTP server.
+     */
+    public void stop() {
+        if (acceptor != null) {
+            acceptor.shutdown(); // clean shutdown
+        }
+        System.out.println("FtpEngine stopped");
+    }
+
+    public FtpCommandProcessor getProcessor() {
+        return processor;
+    }
+}
