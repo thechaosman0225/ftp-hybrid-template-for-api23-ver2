@@ -3,6 +3,7 @@ package com.example.ftpsample;
 import android.net.Uri;
 import android.os.Bundle;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -14,6 +15,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import com.example.ftpengine.saf.SAFFileSystem;
 import com.example.ftp.FtpEngineHybrid;
 import com.example.ftp.AndroidUtils;
+import com.example.ftpengine.FtpUserManager;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -23,6 +25,10 @@ public class MainActivity extends AppCompatActivity {
 
     private ActivityResultLauncher<android.content.Intent> folderPickerLauncher;
 
+    private EditText etUsername, etPassword;
+    private Button btnAddUser;
+    private TextView txtInfo;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -31,6 +37,11 @@ public class MainActivity extends AppCompatActivity {
         TextView txtLog = findViewById(R.id.txtLog);
         ScrollView scrollView = findViewById(R.id.scrollView); 
         logger = new LogUtils(txtLog, scrollView);
+
+        txtInfo = findViewById(R.id.txtInfo);
+        etUsername = findViewById(R.id.etUsername);
+        etPassword = findViewById(R.id.etPassword);
+        btnAddUser = findViewById(R.id.btnAddUser);
 
         Button btnChooseFolder = findViewById(R.id.btnChooseFolder);
         Button btnStart = findViewById(R.id.btnStartServer);
@@ -69,7 +80,11 @@ public class MainActivity extends AppCompatActivity {
             new Thread(() -> {
                 try {
                     ftpEngine.start(2121);
-                    runOnUiThread(() -> logger.log("FTP Server started on port 2121"));
+
+                    runOnUiThread(() -> {
+                        logger.log("FTP Server started on port 2121");
+                        displayServerInfo();
+                    });
                 } catch (Exception e) {
                     runOnUiThread(() -> logger.log("Failed to start FTP Server: " + e.getMessage()));
                     e.printStackTrace();
@@ -88,5 +103,30 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(this, "FTP Server is not running", Toast.LENGTH_SHORT).show();
             }
         });
+
+        // Add user button
+        btnAddUser.setOnClickListener(v -> {
+            if (ftpEngine == null) {
+                Toast.makeText(this, "Start FTP server first", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            String user = etUsername.getText().toString().trim();
+            String pass = etPassword.getText().toString().trim();
+
+            if (user.isEmpty() || pass.isEmpty()) {
+                Toast.makeText(this, "Username and password cannot be empty", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            FtpUserManager userManager = ftpEngine.getProcessor().getUserManager();
+            userManager.addUser(user, pass);
+            Toast.makeText(this, "User added: " + user, Toast.LENGTH_SHORT).show();
+            txtInfo.append("\nAdded user: " + user);
+        });
+    }
+
+    private void displayServerInfo() {
+        txtInfo.setText("Default credentials:\nUser: admin\nPass: admin\n\nConnect using any FTP client\n");
     }
 }
