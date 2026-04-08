@@ -2,13 +2,8 @@ package com.example.ftpengine;
 
 import org.apache.mina.core.service.IoHandler;
 import org.apache.mina.core.session.IoSession;
+import java.nio.charset.StandardCharsets;
 
-import java.io.IOException;
-
-/**
- * Android-compatible IoHandler for the minimal FTP engine.
- * Wraps network events and passes them to the FtpCommandProcessor.
- */
 public class FtpIoHandlerAndroid implements IoHandler {
 
     private final FtpCommandProcessor processor;
@@ -19,19 +14,17 @@ public class FtpIoHandlerAndroid implements IoHandler {
 
     @Override
     public void sessionCreated(IoSession session) {
-        // Initialize per-session FTP context
+        // Create ONE context and reuse it everywhere
         session.setAttribute("ftpCtx", new FtpSessionContext());
     }
 
     @Override
     public void sessionOpened(IoSession session) {
+        // ✅ FTP protocol requires this immediately
         try {
-            // Welcome message to FTP client
-            session.write("220 Android FTP Server Ready\r\n".getBytes());
-        } catch (IOException e) {
-            e.printStackTrace();
-            session.close();
-        }
+            session.write("220 FTP Server Ready\r\n"
+                    .getBytes(StandardCharsets.UTF_8));
+        } catch (Exception ignored) {}
     }
 
     @Override
@@ -39,35 +32,20 @@ public class FtpIoHandlerAndroid implements IoHandler {
         if (!(message instanceof String)) return;
 
         String line = ((String) message).trim();
-        FtpSessionContext ctx = (FtpSessionContext) session.getAttribute("ftpCtx");
+        FtpSessionContext ctx =
+                (FtpSessionContext) session.getAttribute("ftpCtx");
 
-        try {
-            processor.handle(session, ctx, line);
-        } catch (Exception e) {
-            e.printStackTrace();
-            try {
-                session.write("550 Internal server error\r\n".getBytes());
-            } catch (IOException ignored) {}
+        if (ctx == null) {
+            session.close();
+            return;
         }
+
+        processor.handle(session, ctx, line);
     }
 
-    @Override
-    public void messageSent(IoSession session, Object message) {
-        // No special action needed after sending data
-    }
-
-    @Override
-    public void exceptionCaught(IoSession session, Throwable cause) {
-        cause.printStackTrace();
-        try {
-            session.write("426 Connection closed due to error\r\n".getBytes());
-        } catch (IOException ignored) {}
+    @Override public void messageSent(IoSession session, Object message) {}
+    @Override public void exceptionCaught(IoSession session, Throwable cause) {
         session.close();
     }
-
-    @Override
-    public void sessionClosed(IoSession session) {
-        FtpSessionContext ctx = (FtpSessionContext) session.getAttribute("ftpCtx");
-        if (ctx != null) ctx.reset();
-    }
+    @Override public void sessionClosed(IoSession session) {}
 }

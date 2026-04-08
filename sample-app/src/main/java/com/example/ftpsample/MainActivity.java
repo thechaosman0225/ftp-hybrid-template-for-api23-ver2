@@ -9,12 +9,15 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.example.ftp.FtpEngineHybrid;
 import com.example.ftp.AndroidUtils;
+import com.example.ftpengine.FtpUserManager;
 import com.example.ftpengine.saf.SAFFileSystem;
 
 public class MainActivity extends AppCompatActivity {
 
     private SAFFileSystem safFs;
     private FtpEngineHybrid ftpEngine;
+    private FtpUserManager userManager;
+
     private ActivityResultLauncher<android.content.Intent> folderPickerLauncher;
 
     @Override
@@ -24,12 +27,10 @@ public class MainActivity extends AppCompatActivity {
 
         EditText etUsername = findViewById(R.id.etUsername);
         EditText etPassword = findViewById(R.id.etPassword);
-
         Button btnChooseFolder = findViewById(R.id.btnChooseFolder);
         Button btnStart = findViewById(R.id.btnStartServer);
         Button btnStop = findViewById(R.id.btnStopServer);
         Button btnAddUser = findViewById(R.id.btnAddUser);
-
         TextView txtLog = findViewById(R.id.txtLog);
         ScrollView scrollView = findViewById(R.id.scrollView);
 
@@ -65,11 +66,14 @@ public class MainActivity extends AppCompatActivity {
 
             ftpEngine = new FtpEngineHybrid(this, safFs);
 
+            // ✅ THIS IS THE CRITICAL FIX
+            userManager = ftpEngine.getUserManager();
+
             new Thread(() -> {
                 try {
-                    ftpEngine.start(2121);
+                    ftpEngine.start(1024);
                     runOnUiThread(() ->
-                            logger.log("FTP server started on port 2121")
+                            logger.log("FTP server started on port 1024")
                     );
                 } catch (Exception e) {
                     runOnUiThread(() ->
@@ -84,17 +88,16 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(this, "FTP server is not running", Toast.LENGTH_SHORT).show();
                 return;
             }
-
             new Thread(() -> {
                 ftpEngine.stop();
                 ftpEngine = null;
+                userManager = null; // ✅ prevent stale reference
                 runOnUiThread(() -> logger.log("FTP server stopped"));
             }).start();
         });
 
-        // ✅ Add FTP user via ENGINE API (safe)
         btnAddUser.setOnClickListener(v -> {
-            if (ftpEngine == null) {
+            if (ftpEngine == null || userManager == null) {
                 Toast.makeText(this, "Start the FTP server first", Toast.LENGTH_SHORT).show();
                 return;
             }
@@ -107,7 +110,7 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
 
-            ftpEngine.addUser(username, password);
+            userManager.addUser(username, password);
             logger.log("Added FTP user: " + username);
 
             etUsername.setText("");
