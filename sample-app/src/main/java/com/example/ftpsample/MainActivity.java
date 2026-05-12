@@ -36,16 +36,21 @@ public class MainActivity extends AppCompatActivity {
 
         LogUtils logger = new LogUtils(txtLog, scrollView);
 
-        // SAF folder picker
+        /* ===================== SAF Picker ===================== */
+
         folderPickerLauncher = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(),
                 result -> {
                     if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+
                         Uri treeUri = result.getData().getData();
+
                         if (treeUri != null) {
                             AndroidUtils.takePersistablePermission(this, treeUri);
+
                             safFs = new SAFFileSystem(this, treeUri);
-                            logger.log("Selected FTP root: " + treeUri.getPath());
+
+                            logger.log("Selected FTP root: " + treeUri);
                         }
                     }
                 });
@@ -54,7 +59,8 @@ public class MainActivity extends AppCompatActivity {
                 folderPickerLauncher.launch(AndroidUtils.requestSAFRootFolder())
         );
 
-        // START SERVER
+        /* ===================== START SERVER ===================== */
+
         btnStart.setOnClickListener(v -> {
 
             if (safFs == null) {
@@ -71,25 +77,29 @@ public class MainActivity extends AppCompatActivity {
                 ftpEngine = new FtpEngineHybrid(this, safFs);
                 userManager = ftpEngine.getUserManager();
 
-                new Thread(() -> {
-                    try {
-                        ftpEngine.start(1024);
-                        runOnUiThread(() ->
-                                logger.log("FTP server started on port 1024")
-                        );
-                    } catch (Exception e) {
-                        runOnUiThread(() ->
-                                logger.log("Failed to start server: " + e.getMessage())
-                        );
-                    }
-                }).start();
-
             } catch (Exception e) {
                 logger.log("Engine init failed: " + e.getMessage());
+                return;
             }
+
+            new Thread(() -> {
+                try {
+                    ftpEngine.start(1024);
+
+                    runOnUiThread(() ->
+                            logger.log("FTP server started on port 1024")
+                    );
+
+                } catch (Exception e) {
+                    runOnUiThread(() ->
+                            logger.log("Start failed: " + e.getMessage())
+                    );
+                }
+            }).start();
         });
 
-        // STOP SERVER
+        /* ===================== STOP SERVER ===================== */
+
         btnStop.setOnClickListener(v -> {
 
             if (ftpEngine == null) {
@@ -98,17 +108,23 @@ public class MainActivity extends AppCompatActivity {
             }
 
             new Thread(() -> {
-                ftpEngine.stop();
+
+                try {
+                    ftpEngine.stop();
+                } catch (Exception ignored) {}
+
                 ftpEngine = null;
                 userManager = null;
 
                 runOnUiThread(() ->
                         logger.log("FTP server stopped")
                 );
+
             }).start();
         });
 
-        // ADD USER
+        /* ===================== ADD USER ===================== */
+
         btnAddUser.setOnClickListener(v -> {
 
             if (ftpEngine == null || userManager == null) {
@@ -125,6 +141,7 @@ public class MainActivity extends AppCompatActivity {
             }
 
             userManager.addUser(username, password);
+
             logger.log("Added FTP user: " + username);
 
             etUsername.setText("");
