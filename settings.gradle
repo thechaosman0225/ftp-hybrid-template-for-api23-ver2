@@ -29,7 +29,7 @@ dependencyResolutionManagement {
 // ---------------------------------------------------------------------
 rootProject.name = "ftp-hybrid-template"
 
-include(":mina-android-patched")
+// include(":mina-android-patched")
 include(":ftp-engine-core")
 include(":ftp-hybrid-server")
 include(":sample-app")
