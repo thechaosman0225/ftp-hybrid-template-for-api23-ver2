@@ -23,6 +23,20 @@ android {
     // kotlinOptions { jvmTarget = "17" }
 }
 
+android {
+    packagingOptions {
+        resources {
+            excludes += [
+                "META-INF/DEPENDENCIES",
+                "META-INF/LICENSE",
+                "META-INF/LICENSE.txt",
+                "META-INF/NOTICE",
+                "META-INF/NOTICE.txt"
+            ]
+        }
+    }
+}
+
 dependencies {
     // Your modules
     implementation(project(":ftp-engine-core"))
