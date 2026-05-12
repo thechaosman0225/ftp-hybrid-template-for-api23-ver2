@@ -32,14 +32,18 @@ android {
 
 dependencies {
 
-    // Use patched Android MINA instead of Maven MINA
-    implementation project(":mina-android-patched")
+    // 🔥 FORCE Apache MINA 2.x (correct version for FTP server)
+    implementation "org.apache.mina:mina-core:2.1.12"
 
-    // Apache FTP Server WITHOUT its bundled MINA
-    implementation("org.apache.ftpserver:ftpserver-core:1.2.1") {
-        exclude group: "org.apache.mina", module: "mina-core"
-    }
+// Apache FtpServer (needs MINA 2.x)
+    implementation "org.apache.ftpserver:ftpserver-core:1.2.1"
 
     // Optional annotations
     implementation 'androidx.annotation:annotation:1.8.0'
+}
+
+configurations.all {
+    resolutionStrategy {
+        force "org.apache.mina:mina-core:2.1.12"
+    }
 }
