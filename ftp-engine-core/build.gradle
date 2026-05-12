@@ -41,9 +41,3 @@ dependencies {
     // Optional annotations
     implementation 'androidx.annotation:annotation:1.8.0'
 }
-
-configurations.all {
-    resolutionStrategy {
-        force "org.apache.mina:mina-core:2.1.12"
-    }
-}
