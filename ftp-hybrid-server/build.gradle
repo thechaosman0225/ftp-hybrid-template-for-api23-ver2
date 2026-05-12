@@ -21,8 +21,7 @@ dependencies {
     // Core file system + command processor
     implementation project(":ftp-engine-core")
 
-    // Android-compatible MINA transport layer
-    // implementation project(":mina-android-patched")
+    implementation "org.apache.mina:mina-core:2.1.12"
 
     // REQUIRED when using service, handlers, logs, etc.
     implementation 'androidx.annotation:annotation:1.8.0'
