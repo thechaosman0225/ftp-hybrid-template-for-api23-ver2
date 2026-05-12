@@ -27,17 +27,17 @@ public class FtpEngineHybrid {
     private final FtpUserManager userManager;
     private final String serverIp;
 
-    public FtpEngineHybrid(Context context, SAFFileSystem safFs) throws Exception {
+    public FtpEngineHybrid(Context context, SAFFileSystem safFs) {
 
-        this.serverIp = getLocalIpAddress(); // ⭐ REAL LAN IP
-        Log.i(TAG, "Detected LAN IP: " + serverIp);
+        this.serverIp = resolveLocalIpAddress();
+        Log.i(TAG, "Detected FTP LAN IP: " + serverIp);
 
         this.userManager = new FtpUserManager();
         this.processor = new FtpCommandProcessor(safFs, userManager, serverIp);
 
         this.acceptor = new NioSocketAcceptor();
 
-        // Fix telnet / text protocol handling
+        // ===================== MINA CONFIG =====================
         this.acceptor.getFilterChain().addLast(
                 "codec",
                 new ProtocolCodecFilter(
@@ -45,50 +45,71 @@ public class FtpEngineHybrid {
                 )
         );
 
-        // FTP handler
         this.acceptor.setHandler(new FtpIoHandlerAndroid(processor));
 
+        // ===================== STABILITY SETTINGS =====================
         this.acceptor.getSessionConfig().setReuseAddress(true);
+        this.acceptor.getSessionConfig().setTcpNoDelay(true);
+        this.acceptor.getSessionConfig().setKeepAlive(true);
     }
 
     public void start(int port) throws Exception {
         acceptor.bind(new InetSocketAddress("0.0.0.0", port));
-        Log.i(TAG, "FTP server started at " + serverIp + ":" + port);
+
+        Log.i(TAG, "FTP SERVER STARTED");
+        Log.i(TAG, "Connect via: ftp://" + serverIp + ":" + port);
     }
 
     public void stop() {
-        acceptor.unbind();
-        acceptor.dispose(true);
-        Log.i(TAG, "FTP server stopped");
+        try {
+            acceptor.unbind();
+            acceptor.dispose(true);
+            Log.i(TAG, "FTP server stopped");
+        } catch (Exception e) {
+            Log.e(TAG, "Error stopping FTP server", e);
+        }
     }
 
     public FtpUserManager getUserManager() {
         return userManager;
     }
 
-    /* ================= LAN IP DETECTOR ================= */
+    // =========================================================
+    // SAFE LAN IP DETECTOR (FIXED FOR REAL-WORLD NETWORKS)
+    // =========================================================
 
-    private String getLocalIpAddress() throws Exception {
-        Enumeration<NetworkInterface> interfaces =
-                NetworkInterface.getNetworkInterfaces();
+    private String resolveLocalIpAddress() {
+        try {
+            Enumeration<NetworkInterface> interfaces =
+                    NetworkInterface.getNetworkInterfaces();
 
-        while (interfaces.hasMoreElements()) {
-            NetworkInterface ni = interfaces.nextElement();
+            while (interfaces.hasMoreElements()) {
+                NetworkInterface ni = interfaces.nextElement();
 
-            if (!ni.isUp() || ni.isLoopback()) continue;
+                if (!ni.isUp() || ni.isLoopback() || ni.isVirtual()) continue;
 
-            Enumeration<InetAddress> addresses = ni.getInetAddresses();
+                Enumeration<InetAddress> addresses = ni.getInetAddresses();
 
-            while (addresses.hasMoreElements()) {
-                InetAddress addr = addresses.nextElement();
+                while (addresses.hasMoreElements()) {
+                    InetAddress addr = addresses.nextElement();
 
-                if (addr instanceof Inet4Address && !addr.isLoopbackAddress()) {
-                    return addr.getHostAddress();
+                    if (addr instanceof Inet4Address && !addr.isLoopbackAddress()) {
+                        String ip = addr.getHostAddress();
+
+                        // Accept only typical LAN ranges
+                        if (ip.startsWith("192.168.")
+                                || ip.startsWith("10.")
+                                || ip.startsWith("172.")) {
+                            return ip;
+                        }
+                    }
                 }
             }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to detect IP", e);
         }
 
-        // Fallback (should never happen on WiFi)
+        // Fallback (safe but limited)
         return "127.0.0.1";
     }
 }
