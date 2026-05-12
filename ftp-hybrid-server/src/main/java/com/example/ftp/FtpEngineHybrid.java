@@ -7,7 +7,7 @@ import com.example.ftpengine.FtpCommandProcessor;
 import com.example.ftpengine.FtpUserManager;
 import com.example.ftpengine.saf.SAFFileSystem;
 
-import org.apache.mina.core.service.AndroidNioSocketAcceptor;
+import org.apache.mina.transport.socket.nio.NioSocketAcceptor;
 import org.apache.mina.core.service.IoHandler;
 
 import java.net.InetAddress;
@@ -19,22 +19,23 @@ public class FtpEngineHybrid {
 
     private static final String TAG = "FtpEngineHybrid";
 
-    private final AndroidNioSocketAcceptor acceptor;
+    private final NioSocketAcceptor acceptor;
     private final FtpCommandProcessor processor;
     private final FtpUserManager userManager;
 
     public FtpEngineHybrid(Context context, SAFFileSystem safFs) {
-        // ✅ SINGLE user manager instance
-        this.userManager = new FtpUserManager();
 
-        // ✅ SAME instance passed to processor
+        this.userManager = new FtpUserManager();
         this.processor = new FtpCommandProcessor(safFs, userManager);
 
         IoHandler handler = new FtpIoHandlerAndroid(processor);
-        this.acceptor = new AndroidNioSocketAcceptor(handler);
+
+        this.acceptor = new NioSocketAcceptor();
+        this.acceptor.setHandler(handler);
     }
 
     public void start(int port) throws Exception {
+
         acceptor.bind(new InetSocketAddress(
                 InetAddress.getByName("0.0.0.0"), port));
 
@@ -44,10 +45,13 @@ public class FtpEngineHybrid {
         while (interfaces.hasMoreElements()) {
             NetworkInterface ni = interfaces.nextElement();
             Enumeration<InetAddress> addresses = ni.getInetAddresses();
+
             while (addresses.hasMoreElements()) {
                 InetAddress addr = addresses.nextElement();
+
                 if (!addr.isLoopbackAddress()
                         && addr.getHostAddress().contains(".")) {
+
                     Log.i(TAG,
                             "FTP reachable at "
                                     + addr.getHostAddress()
@@ -60,11 +64,11 @@ public class FtpEngineHybrid {
     }
 
     public void stop() {
-        acceptor.shutdown();
+        acceptor.unbind();
+        acceptor.dispose();
         Log.i(TAG, "FTP server stopped");
     }
 
-    // ✅ THIS is what the UI must use
     public FtpUserManager getUserManager() {
         return userManager;
     }
