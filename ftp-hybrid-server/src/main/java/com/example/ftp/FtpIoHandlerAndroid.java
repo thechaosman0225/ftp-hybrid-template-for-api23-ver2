@@ -2,16 +2,16 @@ package com.example.ftp;
 
 import com.example.ftpengine.FtpCommandProcessor;
 import com.example.ftpengine.FtpSessionContext;
-import org.apache.mina.core.service.IoHandler;
+
+import org.apache.mina.core.service.IoHandlerAdapter;
 import org.apache.mina.core.session.IoSession;
 
 import java.nio.charset.StandardCharsets;
 
 /**
  * Android-compatible IoHandler for FTP control connection.
- * Logs connections and commands for easier debugging.
  */
-public class FtpIoHandlerAndroid implements IoHandler {
+public class FtpIoHandlerAndroid extends IoHandlerAdapter {
 
     private final FtpCommandProcessor processor;
 
@@ -28,7 +28,9 @@ public class FtpIoHandlerAndroid implements IoHandler {
 
     @Override
     public void sessionOpened(IoSession session) {
-        FtpSessionContext ctx = (FtpSessionContext) session.getAttribute("ftpCtx");
+        FtpSessionContext ctx =
+                (FtpSessionContext) session.getAttribute("ftpCtx");
+
         try {
             System.out.println("[FTP] Session opened: " + session.getId());
             processor.handle(session, ctx, "220 Welcome to Android FTP Server");
@@ -39,18 +41,24 @@ public class FtpIoHandlerAndroid implements IoHandler {
 
     @Override
     public void sessionClosed(IoSession session) {
-        FtpSessionContext ctx = (FtpSessionContext) session.getAttribute("ftpCtx");
+        FtpSessionContext ctx =
+                (FtpSessionContext) session.getAttribute("ftpCtx");
+
         if (ctx != null) ctx.reset();
+
         System.out.println("[FTP] Session closed: " + session.getId()
                 + " from " + session.getRemoteAddress());
     }
 
     @Override
     public void messageReceived(IoSession session, Object message) {
+
         if (!(message instanceof byte[])) return;
 
         byte[] bytes = (byte[]) message;
-        FtpSessionContext ctx = (FtpSessionContext) session.getAttribute("ftpCtx");
+
+        FtpSessionContext ctx =
+                (FtpSessionContext) session.getAttribute("ftpCtx");
 
         try {
             String line = new String(bytes, StandardCharsets.UTF_8);
@@ -58,11 +66,16 @@ public class FtpIoHandlerAndroid implements IoHandler {
 
             for (String cmdLine : commands) {
                 cmdLine = cmdLine.trim();
+
                 if (!cmdLine.isEmpty()) {
-                    System.out.println("[FTP] Cmd from " + session.getRemoteAddress() + ": " + cmdLine);
+                    System.out.println("[FTP] Cmd from "
+                            + session.getRemoteAddress()
+                            + ": " + cmdLine);
+
                     processor.handle(session, ctx, cmdLine);
                 }
             }
+
         } catch (Exception e) {
             e.printStackTrace();
             try {
@@ -72,14 +85,21 @@ public class FtpIoHandlerAndroid implements IoHandler {
     }
 
     @Override
-    public void messageSent(IoSession session, Object message) {}
+    public void messageSent(IoSession session, Object message) {
+        // optional logging
+    }
 
     @Override
     public void exceptionCaught(IoSession session, Throwable cause) {
         cause.printStackTrace();
-        System.out.println("[FTP] Exception on session " + session.getId() +
-                " from " + session.getRemoteAddress());
-        FtpSessionContext ctx = (FtpSessionContext) session.getAttribute("ftpCtx");
+
+        System.out.println("[FTP] Exception on session "
+                + session.getId()
+                + " from " + session.getRemoteAddress());
+
+        FtpSessionContext ctx =
+                (FtpSessionContext) session.getAttribute("ftpCtx");
+
         try {
             processor.handle(session, ctx, "500 Internal server error");
         } catch (Exception ignored) {}
