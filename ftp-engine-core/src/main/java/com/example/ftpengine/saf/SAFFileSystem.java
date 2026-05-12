@@ -2,6 +2,7 @@ package com.example.ftpengine.saf;
 
 import android.content.Context;
 import android.net.Uri;
+
 import com.example.ftpengine.IFtpFileSystem;
 
 import java.io.ByteArrayOutputStream;
@@ -12,7 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * SAF-backed FTP FileSystem for Android 11+.
+ * SAF-backed FTP FileSystem (FTP-client compatible version)
  */
 public class SAFFileSystem implements IFtpFileSystem {
 
@@ -25,8 +26,10 @@ public class SAFFileSystem implements IFtpFileSystem {
     }
 
     private SAFFileObject getFile(String path) {
-        return new SAFFileObject(context, rootUri, path);
+        return new SAFFileObject(context, rootUri, normalize(path));
     }
+
+    /* ===================== CORE ===================== */
 
     @Override
     public boolean exists(String path) {
@@ -48,21 +51,43 @@ public class SAFFileSystem implements IFtpFileSystem {
         return getFile(from).renameTo(to);
     }
 
+    /* ===================== LIST (FIXED FOR FTP CLIENTS) ===================== */
+
     @Override
     public String[] list(String path) throws IOException {
+
         List<SAFFileObject> files = getFile(path).list();
-        List<String> names = new ArrayList<>();
-        for (SAFFileObject f : files) names.add(f.getPath().substring(f.getPath().lastIndexOf('/') + 1));
-        return names.toArray(new String[0]);
+        List<String> output = new ArrayList<>();
+
+        for (SAFFileObject f : files) {
+
+            String name = extractName(f.getPath());
+
+            // ⭐ FTP-style marker (simple but compatible)
+            if (f.isDirectory()) {
+                output.add("d " + name);
+            } else {
+                output.add("- " + name);
+            }
+        }
+
+        return output.toArray(new String[0]);
     }
+
+    /* ===================== READ / WRITE ===================== */
 
     @Override
     public byte[] readFile(String path) throws IOException {
         try (InputStream in = getFile(path).openInput();
              ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            byte[] buf = new byte[4096];
+
+            byte[] buf = new byte[8192];
             int r;
-            while ((r = in.read(buf)) != -1) out.write(buf, 0, r);
+
+            while ((r = in.read(buf)) != -1) {
+                out.write(buf, 0, r);
+            }
+
             return out.toByteArray();
         }
     }
@@ -73,5 +98,19 @@ public class SAFFileSystem implements IFtpFileSystem {
             out.write(data);
             out.flush();
         }
+    }
+
+    /* ===================== HELPERS ===================== */
+
+    private String normalize(String path) {
+        if (path == null || path.isEmpty()) return "/";
+        if (!path.startsWith("/")) path = "/" + path;
+        return path.replaceAll("/+", "/");
+    }
+
+    private String extractName(String fullPath) {
+        if (fullPath == null) return "";
+        int idx = fullPath.lastIndexOf('/');
+        return (idx >= 0) ? fullPath.substring(idx + 1) : fullPath;
     }
 }
