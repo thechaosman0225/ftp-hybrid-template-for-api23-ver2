@@ -17,9 +17,25 @@ android {
     }
 }
 
+packaging {
+        resources {
+            excludes += setOf(
+                "META-INF/DEPENDENCIES",
+                "META-INF/LICENSE",
+                "META-INF/LICENSE.txt",
+                "META-INF/NOTICE",
+                "META-INF/NOTICE.txt",
+                "META-INF/ASL2.0"
+            )
+        }
+    }
+}
+
 dependencies {
     // Android-compatible MINA transport layer (patched)
-    implementation project(":mina-android-patched")
+    // implementation project(":mina-android-patched")
+    implementation 'org.apache.ftpserver:ftpserver-core:1.2.1'
+    implementation 'org.apache.mina:mina-core:2.2.5'
 
     // Optional: Annotations for clean code
     implementation 'androidx.annotation:annotation:1.8.0'
