@@ -1,8 +1,8 @@
 package com.example.ftp;
 
-import com.example.ftpengine.FtpCommandProcessor;
-import com.example.ftpengine.FtpSessionContext;
+import com.example.ftpengine.*;
 
+import org.apache.mina.core.buffer.IoBuffer;
 import org.apache.mina.core.service.IoHandlerAdapter;
 import org.apache.mina.core.session.IoSession;
 
@@ -10,7 +10,7 @@ import java.nio.charset.StandardCharsets;
 
 public class FtpIoHandlerAndroid extends IoHandlerAdapter {
 
-    private static final String CTX_KEY = "ftpCtx";
+    private static final String CTX = "ftp_ctx";
     private final FtpCommandProcessor processor;
 
     public FtpIoHandlerAndroid(FtpCommandProcessor processor) {
@@ -19,35 +19,52 @@ public class FtpIoHandlerAndroid extends IoHandlerAdapter {
 
     @Override
     public void sessionCreated(IoSession session) {
-        session.setAttribute(CTX_KEY, new FtpSessionContext());
+        session.setAttribute(CTX, new FtpSessionContext());
     }
 
     @Override
     public void sessionOpened(IoSession session) {
+        FtpSessionContext ctx = get(session);
 
-        FtpSessionContext ctx = getCtx(session);
-
-        // ✅ MUST be first message after connect
-        session.write("220 Android FTP Server Ready\r\n");
+        // IMPORTANT: MUST be direct reply, not processor
+        write(session, "220 Android FTP Ready");
     }
 
     @Override
-    public void messageReceived(IoSession session, Object message) {
+    public void messageReceived(IoSession session, Object msg) {
 
-        FtpSessionContext ctx = getCtx(session);
-        if (ctx == null) return;
+        FtpSessionContext ctx = get(session);
+        String line = decode(msg);
 
-        String line = message.toString().trim();
-        if (line.isEmpty()) return;
+        if (line == null || line.isEmpty()) return;
 
-        try {
-            processor.handle(session, ctx, line);
-        } catch (Exception e) {
-            session.write("500 Internal server error\r\n");
-        }
+        processor.handle(session, ctx, line.trim());
     }
 
-    private FtpSessionContext getCtx(IoSession session) {
-        return (FtpSessionContext) session.getAttribute(CTX_KEY);
+    private String decode(Object msg) {
+        try {
+            if (msg instanceof String) return (String) msg;
+
+            if (msg instanceof IoBuffer) {
+                IoBuffer b = (IoBuffer) msg;
+                byte[] d = new byte[b.remaining()];
+                b.get(d);
+                return new String(d, StandardCharsets.UTF_8);
+            }
+
+            if (msg instanceof byte[]) {
+                return new String((byte[]) msg, StandardCharsets.UTF_8);
+            }
+        } catch (Exception ignored) {}
+
+        return null;
+    }
+
+    private FtpSessionContext get(IoSession s) {
+        return (FtpSessionContext) s.getAttribute(CTX);
+    }
+
+    private void write(IoSession s, String msg) {
+        s.write(msg + "\r\n");
     }
 }
