@@ -21,15 +21,15 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Clean all library modules
-        run: ./gradlew :ftp-engine-core:clean :ftp-hybrid-server:clean :mina-android-patched:clean
+        run: ./gradlew :ftp-engine-core:clean :ftp-hybrid-server:clean 
 
       - name: Build all library modules (release)
-        run: ./gradlew :ftp-engine-core:assembleRelease :ftp-hybrid-server:assembleRelease :mina-android-patched:assembleRelease
+        run: ./gradlew :ftp-engine-core:assembleRelease :ftp-hybrid-server:assembleRelease 
 
       - name: Collect AAR artifacts
         run: |
           mkdir -p build/artifacts
-          for module in ftp-engine-core ftp-hybrid-server mina-android-patched; do
+          for module in ftp-engine-core ftp-hybrid-server; do
             aar_file="$module/build/outputs/aar/$module-release.aar"
             cp "$aar_file" "build/artifacts/$module-release.aar"
             echo "Collected AAR: build/artifacts/$module-release.aar"
