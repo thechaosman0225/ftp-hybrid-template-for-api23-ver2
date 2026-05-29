@@ -6,6 +6,10 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+<!-- REQUIRED FOR LINT FIX -->
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
 
     <application
     android:allowBackup="true"
