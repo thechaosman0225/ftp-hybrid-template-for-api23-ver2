@@ -50,10 +50,7 @@ public class FtpServerService extends Service {
 
             Uri treeUri = Uri.parse(uriString);
 
-            // Persist permission
-            AndroidUtils.takePersistablePermission(this, treeUri);
-
-            // Create SAF filesystem
+            // Permission already granted by MainActivity
             SAFFileSystem safFs = new SAFFileSystem(this, treeUri);
 
             // Start FTP engine
