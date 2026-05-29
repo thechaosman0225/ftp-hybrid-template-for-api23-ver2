@@ -23,9 +23,8 @@
 
     <service
         android:name=".FtpServerService"
-        android:enabled="true"
-        android:exported="false"
-        android:foregroundServiceType="none"/>
-
+        android:exported="false"/>
+        
 </application>
+    
 </manifest>
