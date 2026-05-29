@@ -22,8 +22,9 @@
     </activity>
 
     <service
-        android:name=".FtpServerService"
-        android:exported="false"/>
+    android:name=".FtpServerService"
+    android:exported="false"
+    android:foregroundServiceType="connectedDevice" />
         
 </application>
     
