@@ -201,36 +201,54 @@ public class FtpCommandProcessor {
 
     private void list(IoSession session, FtpSessionContext ctx) {
 
-        try {
-            reply(session, "150 Opening data connection");
+    Socket data = null;
 
-            Socket data = waitData(ctx);
+    try {
+        reply(session, "150 Opening data connection");
 
-            if (data == null) {
-                reply(session, "425 No data connection");
-                return;
-            }
+        data = waitForDataSocket(ctx);
 
-            StringBuilder sb = new StringBuilder();
-
-            for (String f : fs.list(ctx.cwd)) {
-                if (f == null) continue;
-                sb.append(f).append("\r\n");
-            }
-
-            data.getOutputStream().write(sb.toString().getBytes(StandardCharsets.UTF_8));
-            data.getOutputStream().flush();
-
-            data.close();
-
-            reply(session, "226 Done");
-
-        } catch (Exception e) {
-            reply(session, "550 LIST failed");
-        } finally {
-            cleanup(ctx);
+        if (data == null) {
+            reply(session, "425 No data connection");
+            return;
         }
+
+        String[] files;
+
+        try {
+            files = fs.list(ctx.cwd);
+        } catch (Exception fsError) {
+            fsError.printStackTrace(); // IMPORTANT: show real issue
+            reply(session, "550 Filesystem error");
+            return;
+        }
+
+        StringBuilder sb = new StringBuilder();
+
+        if (files != null) {
+            for (String f : files) {
+                if (f == null) continue;
+
+                sb.append("-rw-r--r-- 1 owner group 0 Jan 1 00:00 ")
+                        .append(f)
+                        .append("\r\n");
+            }
+        }
+
+        data.getOutputStream().write(sb.toString().getBytes(StandardCharsets.UTF_8));
+        data.getOutputStream().flush();
+
+        reply(session, "226 Transfer complete");
+
+    } catch (Exception e) {
+        e.printStackTrace();
+        reply(session, "550 LIST failed");
+
+    } finally {
+        try { if (data != null) data.close(); } catch (Exception ignored) {}
+        cleanup(ctx);
     }
+}
 
     /* ===================== RETR ===================== */
 
@@ -302,21 +320,21 @@ public class FtpCommandProcessor {
 
     /* ===================== FIXED WAIT (ROOT CAUSE OF YOUR BUG) ===================== */
 
-    private Socket waitData(FtpSessionContext ctx) throws InterruptedException {
+    private Socket waitForData(FtpSessionContext ctx) throws InterruptedException {
 
-        for (int i = 0; i < 200; i++) {
+    for (int i = 0; i < 400; i++) {
 
-            Socket s = ctx.passiveDataSocket;
+        Socket s = ctx.passiveDataSocket;
 
-            if (s != null && s.isConnected() && !s.isClosed()) {
-                return s;
-            }
-
-            Thread.sleep(25);
+        if (s != null && s.isBound()) {
+            return s;
         }
 
-        return null;
+        Thread.sleep(25);
     }
+
+    return null;
+}
 
     /* ===================== CLEANUP ===================== */
 
