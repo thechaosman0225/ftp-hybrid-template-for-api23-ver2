@@ -7,9 +7,15 @@ import com.example.ftpengine.FtpCommandProcessor;
 import com.example.ftpengine.FtpUserManager;
 import com.example.ftpengine.saf.SAFFileSystem;
 
+import org.apache.mina.filter.codec.ProtocolCodecFilter;
+import org.apache.mina.filter.codec.textline.LineDelimiter;
+import org.apache.mina.filter.codec.textline.TextLineCodecFactory;
 import org.apache.mina.transport.socket.nio.NioSocketAcceptor;
 
-import java.net.*;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.NetworkInterface;
 import java.nio.charset.StandardCharsets;
 import java.util.Enumeration;
 
@@ -23,29 +29,48 @@ public class FtpEngineHybrid {
     public FtpEngineHybrid(Context context, SAFFileSystem fs) {
 
         this.serverIp = detectIp();
+
         this.userManager = new FtpUserManager();
 
-        this.processor = new FtpCommandProcessor(fs, userManager, serverIp);
+        this.processor =
+                new FtpCommandProcessor(fs, userManager, serverIp);
 
         this.acceptor = new NioSocketAcceptor();
 
-        // ❌ IMPORTANT: DO NOT USE TextLineCodec for FTP
-        // it breaks CRLF + buffering in FileZilla
+        // ✅ REQUIRED FOR FTP TEXT COMMANDS
+        TextLineCodecFactory codec =
+                new TextLineCodecFactory(StandardCharsets.UTF_8);
 
-        this.acceptor.setHandler(new FtpIoHandlerAndroid(processor));
+        codec.setDecoderDelimiter(LineDelimiter.CRLF);
+        codec.setEncoderDelimiter(LineDelimiter.CRLF);
 
-        this.acceptor.getSessionConfig().setReuseAddress(true);
-        this.acceptor.getSessionConfig().setTcpNoDelay(true);
+        acceptor.getFilterChain().addLast(
+                "codec",
+                new ProtocolCodecFilter(codec)
+        );
+
+        acceptor.setHandler(
+                new FtpIoHandlerAndroid(processor)
+        );
+
+        acceptor.getSessionConfig().setReuseAddress(true);
+        acceptor.getSessionConfig().setTcpNoDelay(true);
+        acceptor.getSessionConfig().setKeepAlive(true);
     }
 
     public void start(int port) throws Exception {
         acceptor.bind(new InetSocketAddress("0.0.0.0", port));
-        Log.i("FTP", "FTP running on " + serverIp + ":" + port);
+
+        Log.i("FTP", "FTP running at " + serverIp + ":" + port);
     }
 
     public void stop() {
-        acceptor.unbind();
-        acceptor.dispose(true);
+
+        try {
+            acceptor.unbind();
+            acceptor.dispose(true);
+        } catch (Exception ignored) {
+        }
     }
 
     public FtpUserManager getUserManager() {
@@ -53,19 +78,37 @@ public class FtpEngineHybrid {
     }
 
     private String detectIp() {
-        try {
-            for (Enumeration<NetworkInterface> en = NetworkInterface.getNetworkInterfaces(); en.hasMoreElements();) {
-                NetworkInterface ni = en.nextElement();
-                if (!ni.isUp() || ni.isLoopback()) continue;
 
-                for (Enumeration<InetAddress> addrs = ni.getInetAddresses(); addrs.hasMoreElements();) {
-                    InetAddress addr = addrs.nextElement();
-                    if (addr instanceof Inet4Address && !addr.isLoopbackAddress()) {
+        try {
+
+            Enumeration<NetworkInterface> interfaces =
+                    NetworkInterface.getNetworkInterfaces();
+
+            while (interfaces.hasMoreElements()) {
+
+                NetworkInterface ni = interfaces.nextElement();
+
+                if (!ni.isUp() || ni.isLoopback()) {
+                    continue;
+                }
+
+                Enumeration<InetAddress> addresses =
+                        ni.getInetAddresses();
+
+                while (addresses.hasMoreElements()) {
+
+                    InetAddress addr = addresses.nextElement();
+
+                    if (addr instanceof Inet4Address
+                            && !addr.isLoopbackAddress()) {
+
                         return addr.getHostAddress();
                     }
                 }
             }
-        } catch (Exception ignored) {}
+
+        } catch (Exception ignored) {
+        }
 
         return "127.0.0.1";
     }
