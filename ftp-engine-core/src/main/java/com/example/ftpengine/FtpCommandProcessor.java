@@ -74,7 +74,6 @@ public class FtpCommandProcessor {
                 break;
 
             case "TYPE":
-                c.type = arg;
                 reply(s, "200 OK");
                 break;
 
