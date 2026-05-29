@@ -84,10 +84,10 @@ public class MainActivity extends AppCompatActivity {
 
             new Thread(() -> {
                 try {
-                    ftpEngine.start(1024);
+                    ftpEngine.start(2121);
 
                     runOnUiThread(() ->
-                            logger.log("FTP server started on port 1024")
+                            logger.log("FTP server started on port 2121")
                     );
 
                 } catch (Exception e) {
