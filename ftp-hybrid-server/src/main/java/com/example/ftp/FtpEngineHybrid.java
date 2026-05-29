@@ -3,23 +3,19 @@ package com.example.ftp;
 import android.content.Context;
 import android.util.Log;
 
-import com.example.ftpengine.FtpCommandProcessor;
-import com.example.ftpengine.FtpUserManager;
-import com.example.ftpengine.saf.SAFFileSystem;
+import com.example.ftpengine.*;
 
 import org.apache.mina.filter.codec.ProtocolCodecFilter;
-import org.apache.mina.filter.codec.textline.LineDelimiter;
 import org.apache.mina.filter.codec.textline.TextLineCodecFactory;
 import org.apache.mina.transport.socket.nio.NioSocketAcceptor;
 
-import java.net.Inet4Address;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.NetworkInterface;
+import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.util.Enumeration;
 
 public class FtpEngineHybrid {
+
+    private static final String TAG = "FtpEngineHybrid";
 
     private final NioSocketAcceptor acceptor;
     private final FtpCommandProcessor processor;
@@ -28,31 +24,19 @@ public class FtpEngineHybrid {
 
     public FtpEngineHybrid(Context context, SAFFileSystem fs) {
 
-        this.serverIp = detectIp();
-
+        this.serverIp = resolveIp();
         this.userManager = new FtpUserManager();
-
-        this.processor =
-                new FtpCommandProcessor(fs, userManager, serverIp);
+        this.processor = new FtpCommandProcessor(fs, userManager, serverIp);
 
         this.acceptor = new NioSocketAcceptor();
 
-        // ✅ REQUIRED FOR FTP TEXT COMMANDS
         TextLineCodecFactory codec =
-        new TextLineCodecFactory(
-                StandardCharsets.UTF_8,
-                LineDelimiter.CRLF,
-                LineDelimiter.CRLF
-        );
+                new TextLineCodecFactory(StandardCharsets.UTF_8);
 
-acceptor.getFilterChain().addLast(
-        "codec",
-        new ProtocolCodecFilter(codec)
-);
+        acceptor.getFilterChain().addLast("codec",
+                new ProtocolCodecFilter(codec));
 
-        acceptor.setHandler(
-                new FtpIoHandlerAndroid(processor)
-        );
+        acceptor.setHandler(new FtpIoHandlerAndroid(processor));
 
         acceptor.getSessionConfig().setReuseAddress(true);
         acceptor.getSessionConfig().setTcpNoDelay(true);
@@ -61,55 +45,37 @@ acceptor.getFilterChain().addLast(
 
     public void start(int port) throws Exception {
         acceptor.bind(new InetSocketAddress("0.0.0.0", port));
-
-        Log.i("FTP", "FTP running at " + serverIp + ":" + port);
+        Log.i(TAG, "FTP started: ftp://" + serverIp + ":" + port);
     }
 
     public void stop() {
-
-        try {
-            acceptor.unbind();
-            acceptor.dispose(true);
-        } catch (Exception ignored) {
-        }
+        acceptor.unbind();
+        acceptor.dispose(true);
     }
 
     public FtpUserManager getUserManager() {
         return userManager;
     }
 
-    private String detectIp() {
-
+    private String resolveIp() {
         try {
+            Enumeration<NetworkInterface> ifs = NetworkInterface.getNetworkInterfaces();
 
-            Enumeration<NetworkInterface> interfaces =
-                    NetworkInterface.getNetworkInterfaces();
+            while (ifs.hasMoreElements()) {
+                NetworkInterface ni = ifs.nextElement();
+                if (!ni.isUp() || ni.isLoopback()) continue;
 
-            while (interfaces.hasMoreElements()) {
+                Enumeration<InetAddress> addrs = ni.getInetAddresses();
 
-                NetworkInterface ni = interfaces.nextElement();
+                while (addrs.hasMoreElements()) {
+                    InetAddress addr = addrs.nextElement();
 
-                if (!ni.isUp() || ni.isLoopback()) {
-                    continue;
-                }
-
-                Enumeration<InetAddress> addresses =
-                        ni.getInetAddresses();
-
-                while (addresses.hasMoreElements()) {
-
-                    InetAddress addr = addresses.nextElement();
-
-                    if (addr instanceof Inet4Address
-                            && !addr.isLoopbackAddress()) {
-
+                    if (addr instanceof Inet4Address && !addr.isLoopbackAddress()) {
                         return addr.getHostAddress();
                     }
                 }
             }
-
-        } catch (Exception ignored) {
-        }
+        } catch (Exception ignored) {}
 
         return "127.0.0.1";
     }
