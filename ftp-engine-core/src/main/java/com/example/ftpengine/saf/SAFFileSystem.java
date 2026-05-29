@@ -54,25 +54,36 @@ public class SAFFileSystem implements IFtpFileSystem {
     /* ===================== LIST (FIXED FOR FTP CLIENTS) ===================== */
 
     @Override
-    public String[] list(String path) throws IOException {
+public String[] list(String path) throws IOException {
 
-        List<SAFFileObject> files = getFile(path).list();
-        List<String> output = new ArrayList<>();
+    List<SAFFileObject> files =
+            getFile(path).list();
 
-        for (SAFFileObject f : files) {
-
-            String name = extractName(f.getPath());
-
-            // ⭐ FTP-style marker (simple but compatible)
-            if (f.isDirectory()) {
-                output.add("d " + name);
-            } else {
-                output.add("- " + name);
-            }
-        }
-
-        return output.toArray(new String[0]);
+    if (files == null) {
+        return new String[0];
     }
+
+    List<String> names = new ArrayList<>();
+
+    for (SAFFileObject f : files) {
+
+        if (f == null) continue;
+
+        String p = f.getPath();
+
+        if (p == null) continue;
+
+        int idx = p.lastIndexOf('/');
+
+        if (idx >= 0 && idx < p.length() - 1) {
+            names.add(p.substring(idx + 1));
+        } else {
+            names.add(p);
+        }
+    }
+
+    return names.toArray(new String[0]);
+}
 
     /* ===================== READ / WRITE ===================== */
 
