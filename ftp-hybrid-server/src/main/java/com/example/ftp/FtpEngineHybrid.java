@@ -39,15 +39,16 @@ public class FtpEngineHybrid {
 
         // ✅ REQUIRED FOR FTP TEXT COMMANDS
         TextLineCodecFactory codec =
-                new TextLineCodecFactory(StandardCharsets.UTF_8);
-
-        codec.setDecoderDelimiter(LineDelimiter.CRLF);
-        codec.setEncoderDelimiter(LineDelimiter.CRLF);
-
-        acceptor.getFilterChain().addLast(
-                "codec",
-                new ProtocolCodecFilter(codec)
+        new TextLineCodecFactory(
+                StandardCharsets.UTF_8,
+                LineDelimiter.CRLF,
+                LineDelimiter.CRLF
         );
+
+acceptor.getFilterChain().addLast(
+        "codec",
+        new ProtocolCodecFilter(codec)
+);
 
         acceptor.setHandler(
                 new FtpIoHandlerAndroid(processor)
