@@ -9,9 +9,6 @@ import org.apache.mina.core.session.IoSession;
 
 import java.nio.charset.StandardCharsets;
 
-/**
- * Stable Android FTP IoHandler (MINA-safe + FileZilla compatible)
- */
 public class FtpIoHandlerAndroid extends IoHandlerAdapter {
 
     private static final String CTX_KEY = "ftpCtx";
@@ -22,7 +19,7 @@ public class FtpIoHandlerAndroid extends IoHandlerAdapter {
         this.processor = processor;
     }
 
-    /* ===================== SESSION ===================== */
+    /* ================= SESSION ================= */
 
     @Override
     public void sessionCreated(IoSession session) {
@@ -40,25 +37,22 @@ public class FtpIoHandlerAndroid extends IoHandlerAdapter {
 
         System.out.println("[FTP] Session opened: " + session.getId());
 
-        // ✅ FIX: Proper FTP greeting MUST be sent as a reply, NOT processed as a command
-        safeReply(session, ctx, "220 Welcome to Android FTP Server");
+        // ✅ FIX: Send greeting directly (DO NOT pass to processor)
+        write(session, "220 Android FTP Server Ready");
     }
 
     @Override
     public void sessionClosed(IoSession session) {
-
         FtpSessionContext ctx = getCtx(session);
 
-        if (ctx != null) {
-            ctx.reset();
-        }
+        if (ctx != null) ctx.reset();
 
         System.out.println("[FTP] Session closed: "
                 + session.getId()
                 + " from " + session.getRemoteAddress());
     }
 
-    /* ===================== MESSAGE ===================== */
+    /* ================= MESSAGE ================= */
 
     @Override
     public void messageReceived(IoSession session, Object message) {
@@ -67,11 +61,9 @@ public class FtpIoHandlerAndroid extends IoHandlerAdapter {
         if (ctx == null) return;
 
         String line = decode(message);
-
         if (line == null) return;
 
         line = line.replace("\r", "").trim();
-
         if (line.isEmpty()) return;
 
         System.out.println("[FTP] CMD: " + line);
@@ -80,46 +72,36 @@ public class FtpIoHandlerAndroid extends IoHandlerAdapter {
             processor.handle(session, ctx, line);
         } catch (Exception e) {
             e.printStackTrace();
-            safeReply(session, ctx, "500 Internal server error");
+            write(session, "500 Internal server error");
         }
     }
 
     @Override
     public void exceptionCaught(IoSession session, Throwable cause) {
-
         cause.printStackTrace();
-
-        System.out.println("[FTP] Exception: "
-                + session.getRemoteAddress());
-
-        safeReply(session, getCtx(session), "500 Internal server error");
+        write(session, "500 Internal server error");
     }
 
-    @Override
-    public void messageSent(IoSession session, Object message) {
-        // optional debug
-    }
+    /* ================= CORE FIX ================= */
 
-    /* ===================== HELPERS ===================== */
-
-    private FtpSessionContext getCtx(IoSession session) {
-        return (FtpSessionContext) session.getAttribute(CTX_KEY);
-    }
-
-    /**
-     * FIX: Correct MINA decoding (supports IoBuffer properly)
-     */
-    private String decode(Object message) {
-
+    private void write(IoSession session, String msg) {
         try {
-            if (message instanceof String) {
-                return (String) message;
-            }
+            session.write(msg + "\r\n");
+        } catch (Exception e) {
+            session.closeNow();
+        }
+    }
+
+    /* ================= DECODER ================= */
+
+    private String decode(Object message) {
+        try {
+            if (message instanceof String) return (String) message;
 
             if (message instanceof IoBuffer) {
-                IoBuffer buffer = (IoBuffer) message;
-                byte[] bytes = new byte[buffer.remaining()];
-                buffer.get(bytes);
+                IoBuffer buf = (IoBuffer) message;
+                byte[] bytes = new byte[buf.remaining()];
+                buf.get(bytes);
                 return new String(bytes, StandardCharsets.UTF_8);
             }
 
@@ -127,25 +109,16 @@ public class FtpIoHandlerAndroid extends IoHandlerAdapter {
                 return new String((byte[]) message, StandardCharsets.UTF_8);
             }
 
-            System.out.println("[FTP] Unknown message type: "
-                    + message.getClass().getName());
-
             return null;
 
         } catch (Exception e) {
-            e.printStackTrace();
             return null;
         }
     }
 
-    /**
-     * FIX: Safe reply wrapper (never crashes session thread)
-     */
-    private void safeReply(IoSession session, FtpSessionContext ctx, String msg) {
-        try {
-            processor.handle(session, ctx, msg);
-        } catch (Exception e) {
-            System.out.println("[FTP] Failed to send reply: " + msg);
-        }
+    /* ================= UTIL ================= */
+
+    private FtpSessionContext getCtx(IoSession session) {
+        return (FtpSessionContext) session.getAttribute(CTX_KEY);
     }
 }
