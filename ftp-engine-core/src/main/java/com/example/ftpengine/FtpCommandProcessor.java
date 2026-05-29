@@ -188,41 +188,72 @@ public class FtpCommandProcessor {
 
     /* ================= PASSIVE MODE (FIXED) ================= */
 
-    private void enterPassiveMode(IoSession session, FtpSessionContext ctx) {
+   private void enterPassiveMode(IoSession session, FtpSessionContext ctx) {
 
-        try {
-            // IMPORTANT: cleanup previous PASV state
-            if (ctx.passiveServerSocket != null) {
-                try { ctx.passiveServerSocket.close(); } catch (Exception ignored) {}
+    try {
+
+        cleanupData(ctx);
+
+        ctx.passiveServerSocket = new ServerSocket(0);
+
+        ctx.passiveServerSocket.setReuseAddress(true);
+
+        ctx.pasvPort =
+                ctx.passiveServerSocket.getLocalPort();
+
+        ctx.passiveDataSocket = null;
+
+        Thread acceptThread = new Thread(() -> {
+
+            try {
+
+                Socket socket =
+                        ctx.passiveServerSocket.accept();
+
+                socket.setKeepAlive(true);
+                socket.setTcpNoDelay(true);
+
+                ctx.passiveDataSocket = socket;
+
+                System.out.println(
+                        "[FTP] Passive client connected: "
+                                + socket.getRemoteSocketAddress()
+                );
+
+            } catch (Exception e) {
+
+                System.out.println(
+                        "[FTP] PASV accept failed: "
+                                + e.getMessage()
+                );
             }
+        });
 
-            ctx.passiveServerSocket = new ServerSocket(0);
-            ctx.passiveDataSocket = null;
-            ctx.pasvPort = ctx.passiveServerSocket.getLocalPort();
+        acceptThread.setDaemon(true);
+        acceptThread.start();
 
-            Thread t = new Thread(() -> {
-                try (Socket socket = ctx.passiveServerSocket.accept()) {
-                    ctx.passiveDataSocket = socket;
-                } catch (Exception ignored) {}
-            });
+        String[] ip = serverIp.split("\\.");
 
-            t.setDaemon(true);
-            t.start();
+        int p1 = ctx.pasvPort / 256;
+        int p2 = ctx.pasvPort % 256;
 
-            String[] ip = serverIp.split("\\.");
+        reply(session,
+                "227 Entering Passive Mode (" +
+                        ip[0] + "," +
+                        ip[1] + "," +
+                        ip[2] + "," +
+                        ip[3] + "," +
+                        p1 + "," +
+                        p2 + ")");
 
-            int p1 = ctx.pasvPort / 256;
-            int p2 = ctx.pasvPort % 256;
+    } catch (Exception e) {
 
-            reply(session,
-                    "227 Entering Passive Mode (" +
-                            ip[0] + "," + ip[1] + "," + ip[2] + "," + ip[3] + "," +
-                            p1 + "," + p2 + ")");
+        e.printStackTrace();
 
-        } catch (Exception e) {
-            reply(session, "425 Can't open passive connection");
-        }
+        reply(session,
+                "425 Can't open passive connection");
     }
+}
 
     /* ================= DATA OPS ================= */
 
@@ -301,33 +332,44 @@ public class FtpCommandProcessor {
 
     /* ================= SAFE DATA HANDLING ================= */
 
-    private Socket waitForData(FtpSessionContext ctx) throws InterruptedException {
+   private Socket waitForData(FtpSessionContext ctx)
+        throws InterruptedException {
 
-        for (int i = 0; i < 200; i++) {
-            Socket s = ctx.passiveDataSocket;
+    for (int i = 0; i < 400; i++) {
 
-            if (s != null && s.isConnected() && !s.isClosed()) {
-                return s;
-            }
+        Socket socket = ctx.passiveDataSocket;
 
-            Thread.sleep(25);
+        if (socket != null
+                && socket.isConnected()
+                && !socket.isClosed()) {
+
+            return socket;
         }
 
-        return null;
+        Thread.sleep(25);
     }
+
+    return null;
+}
 
     private void cleanupData(FtpSessionContext ctx) {
 
-        try {
-            if (ctx.passiveServerSocket != null) {
-                ctx.passiveServerSocket.close();
-            }
-        } catch (Exception ignored) {}
+    try {
+        if (ctx.passiveDataSocket != null) {
+            ctx.passiveDataSocket.close();
+        }
+    } catch (Exception ignored) {}
 
-        ctx.passiveServerSocket = null;
-        ctx.passiveDataSocket = null;
-        ctx.pasvPort = -1;
-    }
+    try {
+        if (ctx.passiveServerSocket != null) {
+            ctx.passiveServerSocket.close();
+        }
+    } catch (Exception ignored) {}
+
+    ctx.passiveDataSocket = null;
+    ctx.passiveServerSocket = null;
+    ctx.pasvPort = -1;
+}
 
     private byte[] readFully(InputStream in) throws Exception {
 
