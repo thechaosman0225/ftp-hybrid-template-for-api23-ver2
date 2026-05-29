@@ -25,7 +25,7 @@
         android:name=".FtpServerService"
         android:enabled="true"
         android:exported="false"
-        android:foregroundServiceType="dataSync"/>
+        //android:foregroundServiceType="dataSync"/>
 
 </application>
 </manifest>
