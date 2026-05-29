@@ -257,54 +257,68 @@ public class FtpCommandProcessor {
 
     /* ================= DATA OPS ================= */
 
-    private void handleList(IoSession session, FtpSessionContext ctx) throws Exception {
+    private void handleList(IoSession session,
+                        FtpSessionContext ctx) throws Exception {
 
-        reply(session, "150 Opening data connection");
+    reply(session, "150 Opening data connection");
 
-        Socket data = waitForData(ctx);
-        if (data == null) {
-            reply(session, "425 No data connection");
-            return;
+    Socket data = waitForData(ctx);
+
+    if (data == null) {
+        reply(session, "425 No data connection");
+        return;
+    }
+
+    try {
+
+        String path = ctx.cwd;
+
+        if (path == null || path.isEmpty()) {
+            path = "/";
         }
+
+        String[] files = fs.list(path);
 
         StringBuilder sb = new StringBuilder();
-        for (String f : fs.list(ctx.cwd)) {
-            if (f != null) sb.append(f).append("\r\n");
+
+        if (files != null) {
+
+            for (String f : files) {
+
+                if (f == null) continue;
+
+                // FileZilla-compatible UNIX listing
+                sb.append("-rw-r--r-- 1 owner group ")
+                        .append("0 ")
+                        .append("Jan 1 00:00 ")
+                        .append(f)
+                        .append("\r\n");
+            }
         }
 
-        data.getOutputStream().write(sb.toString().getBytes(StandardCharsets.UTF_8));
-        data.close();
+        byte[] out =
+                sb.toString().getBytes(StandardCharsets.UTF_8);
 
-        cleanupData(ctx);
+        data.getOutputStream().write(out);
+        data.getOutputStream().flush();
 
         reply(session, "226 Transfer complete");
-    }
 
-    private void handleRetr(IoSession session, FtpSessionContext ctx, String filename) throws Exception {
+    } catch (Exception e) {
 
-        if (filename == null) {
-            reply(session, "501 Missing filename");
-            return;
-        }
+        e.printStackTrace();
 
-        reply(session, "150 Opening data connection");
+        reply(session, "550 Failed to list directory");
 
-        Socket data = waitForData(ctx);
-        if (data == null) {
-            reply(session, "425 No data connection");
-            return;
-        }
+    } finally {
 
-        byte[] bytes = fs.readFile(ctx.cwd + "/" + filename);
-
-        data.getOutputStream().write(bytes);
-        data.close();
+        try {
+            data.close();
+        } catch (Exception ignored) {}
 
         cleanupData(ctx);
-
-        reply(session, "226 Transfer complete");
     }
-
+}
     private void handleStor(IoSession session, FtpSessionContext ctx, String filename) throws Exception {
 
         if (filename == null) {
