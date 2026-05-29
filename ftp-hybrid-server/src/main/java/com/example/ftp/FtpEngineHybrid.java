@@ -11,10 +11,7 @@ import org.apache.mina.filter.codec.ProtocolCodecFilter;
 import org.apache.mina.filter.codec.textline.TextLineCodecFactory;
 import org.apache.mina.transport.socket.nio.NioSocketAcceptor;
 
-import java.net.Inet4Address;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.NetworkInterface;
+import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.util.Enumeration;
 
@@ -29,15 +26,18 @@ public class FtpEngineHybrid {
 
     public FtpEngineHybrid(Context context, SAFFileSystem safFs) {
 
-        this.serverIp = resolveLocalIpAddress();
-        Log.i(TAG, "Detected FTP LAN IP: " + serverIp);
-
+        this.serverIp = resolveBestLanIp();
         this.userManager = new FtpUserManager();
-        this.processor = new FtpCommandProcessor(safFs, userManager, serverIp);
+
+        this.processor = new FtpCommandProcessor(
+                safFs,
+                userManager,
+                serverIp
+        );
 
         this.acceptor = new NioSocketAcceptor();
 
-        // ===================== MINA CONFIG =====================
+        // ================= MINA CONFIG =================
         this.acceptor.getFilterChain().addLast(
                 "codec",
                 new ProtocolCodecFilter(
@@ -47,17 +47,25 @@ public class FtpEngineHybrid {
 
         this.acceptor.setHandler(new FtpIoHandlerAndroid(processor));
 
-        // ===================== STABILITY SETTINGS =====================
+        // ================= STABILITY =================
         this.acceptor.getSessionConfig().setReuseAddress(true);
         this.acceptor.getSessionConfig().setTcpNoDelay(true);
         this.acceptor.getSessionConfig().setKeepAlive(true);
+
+        // IMPORTANT FIX: improves FTP burst handling
+        this.acceptor.getSessionConfig().setReadBufferSize(64 * 1024);
+
+        Log.i(TAG, "FTP Engine initialized on IP: " + serverIp);
     }
 
     public void start(int port) throws Exception {
+
         acceptor.bind(new InetSocketAddress("0.0.0.0", port));
 
-        Log.i(TAG, "FTP SERVER STARTED");
-        Log.i(TAG, "Connect via: ftp://" + serverIp + ":" + port);
+        Log.i(TAG, "===================================");
+        Log.i(TAG, " FTP SERVER READY");
+        Log.i(TAG, " Control: ftp://" + serverIp + ":" + port);
+        Log.i(TAG, "===================================");
     }
 
     public void stop() {
@@ -66,7 +74,7 @@ public class FtpEngineHybrid {
             acceptor.dispose(true);
             Log.i(TAG, "FTP server stopped");
         } catch (Exception e) {
-            Log.e(TAG, "Error stopping FTP server", e);
+            Log.e(TAG, "Stop error", e);
         }
     }
 
@@ -75,15 +83,19 @@ public class FtpEngineHybrid {
     }
 
     // =========================================================
-    // SAFE LAN IP DETECTOR (FIXED FOR REAL-WORLD NETWORKS)
+    // ROBUST LAN IP DETECTOR (FILEZILLA SAFE)
     // =========================================================
 
-    private String resolveLocalIpAddress() {
+    private String resolveBestLanIp() {
+
         try {
             Enumeration<NetworkInterface> interfaces =
                     NetworkInterface.getNetworkInterfaces();
 
+            String fallback = null;
+
             while (interfaces.hasMoreElements()) {
+
                 NetworkInterface ni = interfaces.nextElement();
 
                 if (!ni.isUp() || ni.isLoopback() || ni.isVirtual()) continue;
@@ -91,25 +103,37 @@ public class FtpEngineHybrid {
                 Enumeration<InetAddress> addresses = ni.getInetAddresses();
 
                 while (addresses.hasMoreElements()) {
+
                     InetAddress addr = addresses.nextElement();
 
-                    if (addr instanceof Inet4Address && !addr.isLoopbackAddress()) {
-                        String ip = addr.getHostAddress();
+                    if (!(addr instanceof Inet4Address)) continue;
+                    if (addr.isLoopbackAddress()) continue;
 
-                        // Accept only typical LAN ranges
-                        if (ip.startsWith("192.168.")
-                                || ip.startsWith("10.")
-                                || ip.startsWith("172.")) {
-                            return ip;
-                        }
+                    String ip = addr.getHostAddress();
+
+                    // PRIORITY LAN MATCH
+                    if (ip.startsWith("192.168.")
+                            || ip.startsWith("10.")
+                            || ip.startsWith("172.")) {
+                        Log.i(TAG, "Selected LAN IP: " + ip);
+                        return ip;
                     }
+
+                    // fallback candidate
+                    fallback = ip;
                 }
             }
+
+            if (fallback != null) {
+                Log.w(TAG, "Using fallback IP: " + fallback);
+                return fallback;
+            }
+
         } catch (Exception e) {
-            Log.e(TAG, "Failed to detect IP", e);
+            Log.e(TAG, "IP detection failed", e);
         }
 
-        // Fallback (safe but limited)
+        Log.w(TAG, "Falling back to 127.0.0.1 (NOT LAN accessible)");
         return "127.0.0.1";
     }
 }
