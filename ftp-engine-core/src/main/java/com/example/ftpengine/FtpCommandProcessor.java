@@ -2,8 +2,7 @@ package com.example.ftpengine;
 
 import org.apache.mina.core.session.IoSession;
 
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
+import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
@@ -13,40 +12,36 @@ public class FtpCommandProcessor {
 
     private final IFtpFileSystem fs;
     private final FtpUserManager users;
-    private final String serverIp;
+    private final String ip;
 
-    public FtpCommandProcessor(IFtpFileSystem fs, FtpUserManager users, String serverIp) {
+    public FtpCommandProcessor(IFtpFileSystem fs, FtpUserManager users, String ip) {
         this.fs = fs;
         this.users = users;
-        this.serverIp = (serverIp == null || serverIp.isEmpty())
-                ? "127.0.0.1"
-                : serverIp;
+        this.ip = ip;
     }
 
-    /* ===================== REPLY ===================== */
+    /* ===================== CORE ===================== */
 
-    private void reply(IoSession s, String msg) {
+    private void reply(IoSession s, String m) {
         try {
-            s.write(msg + "\r\n");
+            s.write(m + "\r\n");
         } catch (Exception e) {
             s.closeNow();
         }
     }
 
-    /* ===================== MAIN HANDLER ===================== */
+    /* ===================== MAIN ===================== */
 
     public void handle(IoSession s, FtpSessionContext c, String line) {
 
         if (line == null) return;
 
-        line = line.trim();
-        if (line.isEmpty()) return;
-
         if (c.cwd == null) c.cwd = "/";
+        if (c.type == null) c.type = "I";
 
         String[] p = line.split(" ", 2);
         String cmd = p[0].toUpperCase(Locale.ROOT);
-        String arg = p.length > 1 ? p[1].trim() : null;
+        String arg = p.length > 1 ? p[1] : null;
 
         boolean preLogin =
                 cmd.equals("USER") || cmd.equals("PASS") ||
@@ -59,105 +54,79 @@ public class FtpCommandProcessor {
             return;
         }
 
-        switch (cmd) {
+        try {
+            switch (cmd) {
 
-            /* ================= AUTH ================= */
+                case "USER":
+                    c.username = arg;
+                    reply(s, "331 OK");
+                    break;
 
-            case "USER":
-                c.username = arg;
-                reply(s, "331 OK");
-                break;
+                case "PASS":
+                    if (users.authenticate(c.username, arg)) {
+                        c.loggedIn = true;
+                        reply(s, "230 OK");
+                    } else {
+                        reply(s, "530 FAIL");
+                    }
+                    break;
 
-            case "PASS":
-                if (users.authenticate(c.username, arg)) {
-                    c.loggedIn = true;
-                    reply(s, "230 OK");
-                } else {
-                    reply(s, "530 FAIL");
-                }
-                break;
+                case "SYST":
+                    reply(s, "215 UNIX");
+                    break;
 
-            /* ================= BASIC ================= */
+                case "PWD":
+                    reply(s, "257 \"" + c.cwd + "\"");
+                    break;
 
-            case "SYST":
-                reply(s, "215 UNIX");
-                break;
+                case "TYPE":
+                    c.type = (arg == null) ? "I" : arg.toUpperCase(Locale.ROOT);
+                    reply(s, "200 Type set to " + c.type);
+                    break;
 
-            case "FEAT":
-                reply(s,
-                        "211-Features\r\n" +
-                        " PASV\r\n" +
-                        " UTF8\r\n" +
-                        "211 End");
-                break;
+                case "CWD":
+                    if (arg != null && fs.exists(normalize(c.cwd + "/" + arg))) {
+                        c.cwd = normalize(c.cwd + "/" + arg);
+                        reply(s, "250 OK");
+                    } else {
+                        reply(s, "550 NO DIR");
+                    }
+                    break;
 
-            case "NOOP":
-                reply(s, "200 OK");
-                break;
+                case "PASV":
+                    openPasv(s, c);
+                    break;
 
-            case "QUIT":
-                reply(s, "221 BYE");
-                s.closeNow();
-                break;
+                case "LIST":
+                    list(s, c);
+                    break;
 
-            /* ================= FILE SYSTEM ================= */
-
-            case "PWD":
-                reply(s, "257 \"" + c.cwd + "\"");
-                break;
-
-            case "CWD":
-                if (arg != null && fs.exists(arg)) {
-                    c.cwd = normalize(c.cwd + "/" + arg);
-                    reply(s, "250 OK");
-                } else {
-                    reply(s, "550 NO DIR");
-                }
-                break;
-
-            case "TYPE":
-                c.type = (arg == null) ? "I" : arg.toUpperCase(Locale.ROOT);
-                reply(s, "200 Type set to " + c.type);
-                break;
-
-            /* ================= PASSIVE MODE ================= */
-
-            case "PASV":
-                enterPassiveMode(s, c);
-                break;
-
-            /* ================= DATA COMMANDS ================= */
-
-            case "LIST":
-                list(s, c);
-                break;
-
-            case "RETR":
-                try {
+                case "RETR":
                     retr(s, c, arg);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                    reply(s, "550 RETR failed");
-                }
-                break;
+                    break;
 
-            case "STOR":
-                try {
+                case "STOR":
                     stor(s, c, arg);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                    reply(s, "550 STOR failed");
-                }
-                break;
+                    break;
 
-            default:
-                reply(s, "502 NOT IMPL");
+                case "QUIT":
+                    reply(s, "221 BYE");
+                    s.closeNow();
+                    break;
+
+                default:
+                    reply(s, "502 NOT IMPL");
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            reply(s, "550 ERROR");
         }
     }
 
     /* ===================== PASV ===================== */
 
-    private void enterPassiveMode(IoSession s, FtpSessionContext c) {
+    private void openPasv(IoSession s, FtpSessionContext c) {
 
         try {
             cleanup(c);
@@ -168,25 +137,20 @@ public class FtpCommandProcessor {
             c.passiveServerSocket = ss;
             c.pasvPort = ss.getLocalPort();
 
-            Thread t = new Thread(() -> {
+            new Thread(() -> {
                 try {
-                    Socket socket = ss.accept();
-                    socket.setKeepAlive(true);
-                    socket.setTcpNoDelay(true);
-                    c.passiveDataSocket = socket;
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            });
+                    c.passiveDataSocket = ss.accept();
+                } catch (Exception ignored) {}
+            }).start();
 
-            t.setDaemon(true);
-            t.start();
-
-            String[] ip = ipFix(serverIp);
+            String[] ipParts = ip.split("\\.");
 
             reply(s,
                     "227 Entering Passive Mode (" +
-                            ip[0] + "," + ip[1] + "," + ip[2] + "," + ip[3] + "," +
+                            ipParts[0] + "," +
+                            ipParts[1] + "," +
+                            ipParts[2] + "," +
+                            ipParts[3] + "," +
                             (c.pasvPort / 256) + "," +
                             (c.pasvPort % 256) + ")"
             );
@@ -216,22 +180,23 @@ public class FtpCommandProcessor {
             }
 
             d.getOutputStream().write(sb.toString().getBytes(StandardCharsets.UTF_8));
-            d.getOutputStream().flush();
             d.close();
 
             reply(s, "226 DONE");
 
         } catch (Exception e) {
-            e.printStackTrace();
-            reply(s, "550 LIST FAILED");
-        } finally {
-            cleanup(c);
+            reply(s, "550 LIST FAIL");
         }
     }
 
     /* ===================== RETR ===================== */
 
     private void retr(IoSession s, FtpSessionContext c, String f) throws Exception {
+
+        if (f == null) {
+            reply(s, "501 Missing file");
+            return;
+        }
 
         reply(s, "150 OPEN");
 
@@ -247,12 +212,16 @@ public class FtpCommandProcessor {
         d.close();
 
         reply(s, "226 DONE");
-        cleanup(c);
     }
 
     /* ===================== STOR ===================== */
 
     private void stor(IoSession s, FtpSessionContext c, String f) throws Exception {
+
+        if (f == null) {
+            reply(s, "501 Missing file");
+            return;
+        }
 
         reply(s, "150 OPEN");
 
@@ -262,8 +231,8 @@ public class FtpCommandProcessor {
             return;
         }
 
-        InputStream in = d.getInputStream();
         ByteArrayOutputStream out = new ByteArrayOutputStream();
+        InputStream in = d.getInputStream();
 
         byte[] buf = new byte[8192];
         int r;
@@ -277,15 +246,14 @@ public class FtpCommandProcessor {
         d.close();
 
         reply(s, "226 DONE");
-        cleanup(c);
     }
 
-    /* ===================== WAIT ===================== */
+    /* ===================== SAFE HELPERS ===================== */
 
     private Socket wait(FtpSessionContext c) {
 
-        for (int i = 0; i < 120; i++) {
-            if (c.passiveDataSocket != null) {
+        for (int i = 0; i < 200; i++) {
+            if (c.passiveDataSocket != null && c.passiveDataSocket.isConnected()) {
                 return c.passiveDataSocket;
             }
 
@@ -293,38 +261,20 @@ public class FtpCommandProcessor {
                 Thread.sleep(25);
             } catch (InterruptedException ignored) {}
         }
-
         return null;
     }
 
-    /* ===================== CLEANUP ===================== */
-
     private void cleanup(FtpSessionContext c) {
-
-        try {
-            if (c.passiveDataSocket != null) c.passiveDataSocket.close();
-        } catch (Exception ignored) {}
-
-        try {
-            if (c.passiveServerSocket != null) c.passiveServerSocket.close();
-        } catch (Exception ignored) {}
+        try { if (c.passiveDataSocket != null) c.passiveDataSocket.close(); } catch (Exception ignored) {}
+        try { if (c.passiveServerSocket != null) c.passiveServerSocket.close(); } catch (Exception ignored) {}
 
         c.passiveDataSocket = null;
         c.passiveServerSocket = null;
         c.pasvPort = -1;
     }
 
-    /* ===================== HELPERS ===================== */
-
     private String normalize(String p) {
         if (p == null) return "/";
         return p.replace("//", "/");
-    }
-
-    private String[] ipFix(String ip) {
-        if (ip == null || !ip.contains(".")) {
-            return new String[]{"127", "0", "0", "1"};
-        }
-        return ip.split("\\.");
     }
 }
