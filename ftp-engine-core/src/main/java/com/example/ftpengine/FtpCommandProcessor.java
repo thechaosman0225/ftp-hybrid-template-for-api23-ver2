@@ -229,16 +229,16 @@ public class FtpCommandProcessor {
         reply(s, "226 DONE");
     }
 
-    private Socket wait(FtpSessionContext c) throws InterruptedException {
+    private Socket wait(FtpSessionContext c) {
 
-        for (int i = 0; i < 400; i++) {
-            if (c.passiveDataSocket != null && c.passiveDataSocket.isConnected())
-                return c.passiveDataSocket;
-
-            Thread.sleep(25);
-        }
-        return null;
+    synchronized (c) {
+        try {
+            c.wait(3000); // FileZilla expects fast response
+        } catch (InterruptedException ignored) {}
     }
+
+    return c.passiveDataSocket;
+}
 
     private String normalize(String p) {
         return p.replace("//", "/");
