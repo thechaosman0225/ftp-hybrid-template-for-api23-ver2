@@ -90,7 +90,7 @@ public class FtpCommandProcessor {
                     retr(s, c, arg);
                 } catch (Exception e) {
                     e.printStackTrace();
-                    reply(s, "550 RETR failed");
+                    reply(s, "550 " + e.getClass().getSimpleName());
                 }
 
             case "STOR":
