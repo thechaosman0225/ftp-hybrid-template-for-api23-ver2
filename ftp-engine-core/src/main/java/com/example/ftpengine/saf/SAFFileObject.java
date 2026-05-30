@@ -81,16 +81,62 @@ public class SAFFileObject {
      * Convert FTP path (/folder/a.txt) → SAF Uri for file.
      */
     private Uri resolveDocumentUri() {
-        String[] parts = path.split("/");
-        Uri current = rootUri;
+    try {
+        String clean = path.replaceAll("/+", "/");
+        if (clean.equals("/")) return rootUri;
 
-        for (String p : parts) {
-            if (p.isEmpty()) continue;
-            current = findChildUri(current, p);
-            if (current == null) return null;
+        Uri current = rootUri;
+        String[] parts = clean.split("/");
+
+        for (String part : parts) {
+            if (part == null || part.isEmpty()) continue;
+
+            Uri childrenUri =
+                    DocumentsContract.buildChildDocumentsUriUsingTree(
+                            current,
+                            DocumentsContract.getDocumentId(current)
+                    );
+
+            Cursor c = resolver.query(
+                    childrenUri,
+                    new String[]{
+                            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                            DocumentsContract.Document.COLUMN_DISPLAY_NAME
+                    },
+                    null, null, null
+            );
+
+            if (c == null) return null;
+
+            Uri next = null;
+
+            while (c.moveToNext()) {
+                String docId = c.getString(0);
+                String name = c.getString(1);
+
+                if (part.equals(name)) {
+                    next = DocumentsContract.buildDocumentUriUsingTree(
+                            rootUri,
+                            docId
+                    );
+                    break;
+                }
+            }
+
+            c.close();
+
+            if (next == null) return null;
+
+            current = next;
         }
+
         return current;
+
+    } catch (Exception e) {
+        e.printStackTrace();
+        return null;
     }
+}
 
     /**
      * Scans children of SAF dir for matching name.
