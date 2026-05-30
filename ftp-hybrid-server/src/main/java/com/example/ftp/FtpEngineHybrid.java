@@ -3,14 +3,19 @@ package com.example.ftp;
 import android.content.Context;
 import android.util.Log;
 
-import com.example.ftpengine.*;
+import com.example.ftpengine.FtpCommandProcessor;
+import com.example.ftpengine.FtpUserManager;
 import com.example.ftpengine.saf.SAFFileSystem;
+
 
 import org.apache.mina.filter.codec.ProtocolCodecFilter;
 import org.apache.mina.filter.codec.textline.TextLineCodecFactory;
 import org.apache.mina.transport.socket.nio.NioSocketAcceptor;
 
-import java.net.*;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.NetworkInterface;
 import java.nio.charset.StandardCharsets;
 import java.util.Enumeration;
 
