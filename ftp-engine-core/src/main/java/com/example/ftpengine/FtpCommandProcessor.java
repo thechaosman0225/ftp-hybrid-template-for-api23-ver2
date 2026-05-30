@@ -86,12 +86,20 @@ public class FtpCommandProcessor {
                 break;
 
             case "RETR":
-                retr(s, c, arg);
-                break;
+                try {
+                    retr(s, c, arg);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    reply(s, "550 RETR failed");
+                }
 
             case "STOR":
-                stor(s, c, arg);
-                break;
+                try {
+                    stor(s, c, arg);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    reply(s, "550 STOR failed");
+                }
 
             case "QUIT":
                 reply(s, "221 BYE");
