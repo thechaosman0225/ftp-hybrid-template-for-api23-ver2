@@ -111,37 +111,51 @@ public class FtpCommandProcessor {
         }
     }
 
-    private void openPasv(IoSession s, FtpSessionContext c) {
+    private void enterPassiveMode(IoSession s, FtpSessionContext c) {
 
-        try {
-            if (c.passiveServerSocket != null)
-                c.passiveServerSocket.close();
+    try {
+        cleanupData(c);
 
-            ServerSocket ss = new ServerSocket(0);
-            ss.setReuseAddress(true);
+        ServerSocket ss = new ServerSocket(0);
+        ss.setReuseAddress(true);
 
-            c.passiveServerSocket = ss;
-            c.pasvPort = ss.getLocalPort();
+        c.passiveServerSocket = ss;
+        c.pasvPort = ss.getLocalPort();
 
-            new Thread(() -> {
-                try {
-                    c.passiveDataSocket = ss.accept();
-                } catch (Exception ignored) {}
-            }).start();
+        final Object lock = new Object();
 
-            String[] ip = this.ip.split("\\.");
+        Thread acceptThread = new Thread(() -> {
+            try {
+                Socket socket = ss.accept();
 
-            reply(s,
-                    "227 Entering Passive Mode (" +
-                            ip[0]+","+ip[1]+","+ip[2]+","+ip[3]+"," +
-                            (c.pasvPort / 256) + "," +
-                            (c.pasvPort % 256) + ")"
-            );
+                socket.setKeepAlive(true);
+                socket.setTcpNoDelay(true);
 
-        } catch (Exception e) {
-            reply(s, "425 PASV FAIL");
-        }
+                synchronized (lock) {
+                    c.passiveDataSocket = socket;
+                    lock.notifyAll();
+                }
+
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        });
+
+        acceptThread.setDaemon(true);
+        acceptThread.start();
+
+        String[] ip = ipFix(serverIp);
+
+        reply(s,
+                "227 Entering Passive Mode (" +
+                        ip[0]+","+ip[1]+","+ip[2]+","+ip[3]+"," +
+                        (c.pasvPort / 256) + "," +
+                        (c.pasvPort % 256) + ")");
+
+    } catch (Exception e) {
+        reply(s, "425 PASV FAIL");
     }
+}
 
     private void list(IoSession s, FtpSessionContext c) {
 
