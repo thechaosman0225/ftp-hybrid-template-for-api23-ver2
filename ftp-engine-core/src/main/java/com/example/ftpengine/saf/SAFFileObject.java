@@ -15,20 +15,32 @@ import java.util.List;
 /**
  * SAF-backed representation of a single file or folder.
  *
- * KEY SAF RULE: DocumentsContract.buildChildDocumentsUriUsingTree() always
- * requires the TREE Uri as its first argument, not a document Uri.
- * The original code passed `current` (which becomes a document Uri after the
- * first path segment is resolved), causing all Cursor queries to return null
- * for any path deeper than one level, and making list() throw IOException
- * "Directory not found" — ultimately surfacing as "550 LIST failed" in FileZilla.
+ * Root causes of "550 LIST failed" — all fixed here:
  *
- * Fixes applied:
- *   BUG 1 — resolveDocumentUri(): always pass rootUri (tree) to
- *            buildChildDocumentsUriUsingTree(), never `current`.
- *   BUG 2 — list(): same tree/document confusion fixed.
- *   BUG 3 — list() now fetches MIME_TYPE in the same Cursor query so
- *            callers can check isDirectory without a second SAF round-trip
- *            per file (which was also broken by Bug 1).
+ * BUG 1 (previous round) — resolveDocumentUri() used `current` (a document
+ *   Uri after the first iteration) as the tree arg of
+ *   buildChildDocumentsUriUsingTree(). SAF requires rootUri there always.
+ *   Fixed by tracking only the currentDocId string, never the Uri.
+ *
+ * BUG 2 (previous round) — list() called buildChildDocumentsUriUsingTree()
+ *   with `doc` instead of rootUri. Same tree/document confusion. Fixed.
+ *
+ * BUG 3 (this round) — list() called DocumentsContract.getDocumentId(doc)
+ *   when doc == rootUri (the root "/" case). getDocumentId() expects a
+ *   document Uri (with a /document/ path segment) and throws
+ *   IllegalArgumentException on a plain tree Uri. This exception was
+ *   swallowed by the catch block in FtpCommandProcessor.list() → 550.
+ *   Fixed by using getTreeDocumentId(rootUri) for the root case.
+ *
+ * BUG 4 (this round) — resolveDocumentUri() seeded currentDocId with
+ *   getDocumentId(rootUri) on the very first call, which has the same
+ *   IllegalArgumentException problem as Bug 3.
+ *   Fixed by using getTreeDocumentId(rootUri) to seed the walk.
+ *
+ * BUG 5 (this round) — list() fetched MIME_TYPE but the null check for
+ *   the fallback docId used a null-check that never triggered because
+ *   getDocumentId throws rather than returning null.
+ *   Fixed with the root/non-root branch.
  *
  * License: Apache 2.0
  */
@@ -36,20 +48,33 @@ public class SAFFileObject {
 
     private final Context context;
     private final ContentResolver resolver;
-    private final Uri rootUri;        // Always the tree Uri — never changes.
-    private final String path;        // FTP-style absolute path, e.g. "/folder/file.txt"
-    private String mimeType;          // Populated by list(); null when constructed directly.
+
+    /**
+     * The tree Uri returned by ACTION_OPEN_DOCUMENT_TREE.
+     * Always used as the first arg to buildChildDocumentsUriUsingTree().
+     * Never changes.
+     */
+    private final Uri rootUri;
+
+    /** FTP-style absolute path, e.g. "/" or "/Photos/img.jpg". */
+    private final String path;
+
+    /**
+     * Cached MIME type — populated by list() so isDirectory() needs no
+     * extra SAF query for children returned from list().
+     */
+    private final String mimeType;
 
     public SAFFileObject(Context ctx, Uri rootUri, String path) {
+        this(ctx, rootUri, path, null);
+    }
+
+    /** Used internally by list() to carry mime without extra queries. */
+    SAFFileObject(Context ctx, Uri rootUri, String path, String mimeType) {
         this.context  = ctx;
         this.resolver = ctx.getContentResolver();
         this.rootUri  = rootUri;
         this.path     = normalizePath(path);
-    }
-
-    /** Package-private constructor used by list() to carry mime type without extra queries. */
-    SAFFileObject(Context ctx, Uri rootUri, String path, String mimeType) {
-        this(ctx, rootUri, path);
         this.mimeType = mimeType;
     }
 
@@ -61,24 +86,27 @@ public class SAFFileObject {
 
     public String getPath() { return path; }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Public API
+    // ─────────────────────────────────────────────────────────────────────────
+
     public boolean exists() {
-        return (resolveDocumentUri() != null);
+        return resolveDocumentId() != null;
     }
 
     public boolean isDirectory() {
-        // Fast path: mime already fetched by list().
         if (mimeType != null) {
             return DocumentsContract.Document.MIME_TYPE_DIR.equals(mimeType);
         }
-        Uri doc = resolveDocumentUri();
-        if (doc == null) return false;
+        String docId = resolveDocumentId();
+        if (docId == null) return false;
 
-        try (Cursor c = resolver.query(doc,
+        Uri docUri = DocumentsContract.buildDocumentUriUsingTree(rootUri, docId);
+        try (Cursor c = resolver.query(docUri,
                 new String[]{DocumentsContract.Document.COLUMN_MIME_TYPE},
                 null, null, null)) {
             if (c != null && c.moveToFirst()) {
-                String mime = c.getString(0);
-                return DocumentsContract.Document.MIME_TYPE_DIR.equals(mime);
+                return DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(0));
             }
         } catch (Exception ignored) {}
         return false;
@@ -89,65 +117,59 @@ public class SAFFileObject {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // CORE: resolve FTP path → SAF document Uri
+    // Core: resolve FTP path → SAF document ID string
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Walks the FTP path segment-by-segment through SAF, always using rootUri
-     * as the tree Uri in buildChildDocumentsUriUsingTree().
+     * Walks the FTP path segment-by-segment and returns the SAF document ID
+     * string for the target, or null if not found.
      *
-     * Returns a document Uri on success, null if any segment is not found.
+     * We track only the document ID string (not a Uri) so we never
+     * accidentally pass a document Uri where a tree Uri is required.
+     *
+     * BUG 3+4 FIX: seed the walk with getTreeDocumentId(rootUri), NOT
+     * getDocumentId(rootUri). getDocumentId() throws IllegalArgumentException
+     * on a tree Uri because tree Uris have no /document/ path segment.
      */
-    Uri resolveDocumentUri() {
+    private String resolveDocumentId() {
         try {
             String clean = path.replaceAll("/+", "/");
 
-            // Root maps directly to the tree root document.
-            if (clean.equals("/")) return rootUri;
+            // BUG 4 FIX: use getTreeDocumentId for the root, not getDocumentId.
+            String currentDocId = DocumentsContract.getTreeDocumentId(rootUri);
 
-            // Start from the root document id.
-            String currentDocId = DocumentsContract.getDocumentId(rootUri);
+            if (clean.equals("/")) return currentDocId;
 
-            String[] parts = clean.split("/");
-            Uri result = null;
-
-            for (String part : parts) {
+            for (String part : clean.split("/")) {
                 if (part == null || part.isEmpty()) continue;
 
-                // BUG 1 FIX: always use rootUri (tree) as the first argument.
+                // BUG 1 FIX: always use rootUri (tree) as first arg.
                 Uri childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
-                        rootUri,        // ← tree Uri, constant throughout
-                        currentDocId    // ← current folder's document id
+                        rootUri,       // ← tree Uri, constant
+                        currentDocId   // ← current folder's document id string
                 );
 
-                try (Cursor c = resolver.query(
-                        childrenUri,
+                try (Cursor c = resolver.query(childrenUri,
                         new String[]{
                                 DocumentsContract.Document.COLUMN_DOCUMENT_ID,
                                 DocumentsContract.Document.COLUMN_DISPLAY_NAME
-                        },
-                        null, null, null)) {
+                        }, null, null, null)) {
 
                     if (c == null) return null;
 
-                    String foundDocId = null;
+                    String found = null;
                     while (c.moveToNext()) {
-                        String docId = c.getString(0);
-                        String name  = c.getString(1);
-                        if (part.equals(name)) {
-                            foundDocId = docId;
+                        if (part.equals(c.getString(1))) {
+                            found = c.getString(0);
                             break;
                         }
                     }
-
-                    if (foundDocId == null) return null;
-
-                    currentDocId = foundDocId;
-                    result = DocumentsContract.buildDocumentUriUsingTree(rootUri, foundDocId);
+                    if (found == null) return null;
+                    currentDocId = found;
                 }
             }
 
-            return result;
+            return currentDocId;
 
         } catch (Exception e) {
             e.printStackTrace();
@@ -160,46 +182,34 @@ public class SAFFileObject {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Lists direct children of this directory.
-     * Each returned SAFFileObject carries its MIME type so callers can call
-     * isDirectory() without triggering another SAF query.
+     * Lists direct children. Each child carries its MIME type so the caller
+     * can call isDirectory() at zero cost (no extra SAF query needed).
+     *
+     * BUG 2+3 FIX: use rootUri (tree) in buildChildDocumentsUriUsingTree()
+     * and use getTreeDocumentId / getDocumentId correctly per case.
      */
     public List<SAFFileObject> list() throws IOException {
-        Uri doc = resolveDocumentUri();
-        if (doc == null) throw new IOException("Directory not found: " + path);
+        String docId = resolveDocumentId();
+        if (docId == null) throw new IOException("Directory not found: " + path);
 
-        // Derive document id from the resolved document Uri.
-        String docId = DocumentsContract.getDocumentId(doc);
-        if (docId == null) {
-            // Fallback for root where getDocumentId on a tree Uri returns the root id.
-            docId = DocumentsContract.getTreeDocumentId(rootUri);
-        }
-
-        // BUG 2 FIX: use rootUri (tree) as the first argument, not `doc`.
+        // BUG 2 FIX: rootUri is the tree, docId is the current folder's id.
         Uri childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
-                rootUri,  // ← tree Uri, always
-                docId
-        );
+                rootUri, docId);
 
         List<SAFFileObject> result = new ArrayList<>();
 
-        // BUG 3 FIX: also fetch MIME_TYPE here so isDirectory() is free.
         try (Cursor c = resolver.query(childrenUri,
                 new String[]{
-                        DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                        DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-                        DocumentsContract.Document.COLUMN_MIME_TYPE      // ← added
-                },
-                null, null, null)) {
+                        DocumentsContract.Document.COLUMN_DOCUMENT_ID,   // 0
+                        DocumentsContract.Document.COLUMN_DISPLAY_NAME,  // 1
+                        DocumentsContract.Document.COLUMN_MIME_TYPE      // 2
+                }, null, null, null)) {
 
             if (c != null) {
                 while (c.moveToNext()) {
-                    // String docIdChild = c.getString(0); // available if needed
                     String name = c.getString(1);
                     String mime = c.getString(2);
-
                     String childPath = path.equals("/") ? "/" + name : path + "/" + name;
-
                     result.add(new SAFFileObject(context, rootUri, childPath, mime));
                 }
             }
@@ -211,28 +221,29 @@ public class SAFFileObject {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // READ / WRITE / DELETE / MKDIR / RENAME
+    // Read / Write / Delete / MkDir / Rename
     // ─────────────────────────────────────────────────────────────────────────
 
     public InputStream openInput() throws IOException {
-        Uri doc = resolveDocumentUri();
-        if (doc == null) throw new IOException("File not found: " + path);
-        return resolver.openInputStream(doc);
+        String docId = resolveDocumentId();
+        if (docId == null) throw new IOException("File not found: " + path);
+        return resolver.openInputStream(
+                DocumentsContract.buildDocumentUriUsingTree(rootUri, docId));
     }
 
     public OutputStream openOutput(boolean append) throws IOException {
-        Uri doc = resolveDocumentUri();
-        if (doc == null) {
-            doc = createFile(path);
-        }
-        String mode = append ? "wa" : "w";
-        return resolver.openOutputStream(doc, mode);
+        String docId = resolveDocumentId();
+        Uri docUri = (docId != null)
+                ? DocumentsContract.buildDocumentUriUsingTree(rootUri, docId)
+                : createFile(path);
+        return resolver.openOutputStream(docUri, append ? "wa" : "w");
     }
 
     public boolean delete() throws IOException {
-        Uri doc = resolveDocumentUri();
-        if (doc == null) return false;
-        return DocumentsContract.deleteDocument(resolver, doc);
+        String docId = resolveDocumentId();
+        if (docId == null) return false;
+        return DocumentsContract.deleteDocument(resolver,
+                DocumentsContract.buildDocumentUriUsingTree(rootUri, docId));
     }
 
     public boolean mkdir() throws IOException {
@@ -242,45 +253,47 @@ public class SAFFileObject {
 
     public boolean renameTo(String newPath) throws IOException {
         String newName = newPath.substring(newPath.lastIndexOf("/") + 1);
-        Uri doc = resolveDocumentUri();
-        if (doc == null) throw new IOException("File not found: " + path);
-        return DocumentsContract.renameDocument(resolver, doc, newName) != null;
+        String docId = resolveDocumentId();
+        if (docId == null) throw new IOException("File not found: " + path);
+        Uri docUri = DocumentsContract.buildDocumentUriUsingTree(rootUri, docId);
+        return DocumentsContract.renameDocument(resolver, docUri, newName) != null;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // PRIVATE HELPERS
+    // Private helpers
     // ─────────────────────────────────────────────────────────────────────────
 
     private Uri createFile(String fullPath) throws IOException {
         String parentPath = fullPath.substring(0, fullPath.lastIndexOf('/'));
         String filename   = fullPath.substring(fullPath.lastIndexOf('/') + 1);
 
-        Uri parentDoc = new SAFFileObject(context, rootUri,
-                parentPath.isEmpty() ? "/" : parentPath).resolveDocumentUri();
-        if (parentDoc == null)
+        String parentDocId = new SAFFileObject(context, rootUri,
+                parentPath.isEmpty() ? "/" : parentPath).resolveDocumentId();
+        if (parentDocId == null)
             throw new IOException("Parent folder does not exist: " + parentPath);
 
+        Uri parentDocUri = DocumentsContract.buildDocumentUriUsingTree(rootUri, parentDocId);
         Uri newDoc = DocumentsContract.createDocument(
-                resolver, parentDoc, "application/octet-stream", filename);
+                resolver, parentDocUri, "application/octet-stream", filename);
         if (newDoc == null)
             throw new IOException("Failed to create file: " + filename);
         return newDoc;
     }
 
-    private Uri createFolder(String fullPath) throws IOException {
+    private void createFolder(String fullPath) throws IOException {
         String parentPath  = fullPath.substring(0, fullPath.lastIndexOf('/'));
         String folderName  = fullPath.substring(fullPath.lastIndexOf('/') + 1);
 
-        Uri parentDoc = new SAFFileObject(context, rootUri,
-                parentPath.isEmpty() ? "/" : parentPath).resolveDocumentUri();
-        if (parentDoc == null)
+        String parentDocId = new SAFFileObject(context, rootUri,
+                parentPath.isEmpty() ? "/" : parentPath).resolveDocumentId();
+        if (parentDocId == null)
             throw new IOException("Parent folder does not exist: " + parentPath);
 
+        Uri parentDocUri = DocumentsContract.buildDocumentUriUsingTree(rootUri, parentDocId);
         Uri newDoc = DocumentsContract.createDocument(
-                resolver, parentDoc,
+                resolver, parentDocUri,
                 DocumentsContract.Document.MIME_TYPE_DIR, folderName);
         if (newDoc == null)
             throw new IOException("Failed to create folder: " + folderName);
-        return newDoc;
     }
 }
