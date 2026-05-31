@@ -15,20 +15,42 @@ import java.util.List;
 /**
  * SAF-backed representation of a single file or folder.
  *
+ * KEY SAF RULE: DocumentsContract.buildChildDocumentsUriUsingTree() always
+ * requires the TREE Uri as its first argument, not a document Uri.
+ * The original code passed `current` (which becomes a document Uri after the
+ * first path segment is resolved), causing all Cursor queries to return null
+ * for any path deeper than one level, and making list() throw IOException
+ * "Directory not found" — ultimately surfacing as "550 LIST failed" in FileZilla.
+ *
+ * Fixes applied:
+ *   BUG 1 — resolveDocumentUri(): always pass rootUri (tree) to
+ *            buildChildDocumentsUriUsingTree(), never `current`.
+ *   BUG 2 — list(): same tree/document confusion fixed.
+ *   BUG 3 — list() now fetches MIME_TYPE in the same Cursor query so
+ *            callers can check isDirectory without a second SAF round-trip
+ *            per file (which was also broken by Bug 1).
+ *
  * License: Apache 2.0
  */
 public class SAFFileObject {
 
     private final Context context;
     private final ContentResolver resolver;
-    private final Uri rootUri;
-    private final String path; // "/folder/file.txt"
+    private final Uri rootUri;        // Always the tree Uri — never changes.
+    private final String path;        // FTP-style absolute path, e.g. "/folder/file.txt"
+    private String mimeType;          // Populated by list(); null when constructed directly.
 
     public SAFFileObject(Context ctx, Uri rootUri, String path) {
-        this.context = ctx;
+        this.context  = ctx;
         this.resolver = ctx.getContentResolver();
-        this.rootUri = rootUri;
-        this.path = normalizePath(path);
+        this.rootUri  = rootUri;
+        this.path     = normalizePath(path);
+    }
+
+    /** Package-private constructor used by list() to carry mime type without extra queries. */
+    SAFFileObject(Context ctx, Uri rootUri, String path, String mimeType) {
+        this(ctx, rootUri, path);
+        this.mimeType = mimeType;
     }
 
     private String normalizePath(String p) {
@@ -37,170 +59,160 @@ public class SAFFileObject {
         return p;
     }
 
-    public String getPath() {
-        return path;
-    }
+    public String getPath() { return path; }
 
     public boolean exists() {
         return (resolveDocumentUri() != null);
     }
 
     public boolean isDirectory() {
+        // Fast path: mime already fetched by list().
+        if (mimeType != null) {
+            return DocumentsContract.Document.MIME_TYPE_DIR.equals(mimeType);
+        }
         Uri doc = resolveDocumentUri();
         if (doc == null) return false;
 
         try (Cursor c = resolver.query(doc,
                 new String[]{DocumentsContract.Document.COLUMN_MIME_TYPE},
                 null, null, null)) {
-
             if (c != null && c.moveToFirst()) {
                 String mime = c.getString(0);
                 return DocumentsContract.Document.MIME_TYPE_DIR.equals(mime);
             }
-        }
+        } catch (Exception ignored) {}
         return false;
     }
 
     public boolean isFile() {
-        Uri doc = resolveDocumentUri();
-        if (doc == null) return false;
-
-        try (Cursor c = resolver.query(doc,
-                new String[]{DocumentsContract.Document.COLUMN_MIME_TYPE},
-                null, null, null)) {
-
-            if (c != null && c.moveToFirst()) {
-                String mime = c.getString(0);
-                return !DocumentsContract.Document.MIME_TYPE_DIR.equals(mime);
-            }
-        }
-        return false;
+        return exists() && !isDirectory();
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // CORE: resolve FTP path → SAF document Uri
+    // ─────────────────────────────────────────────────────────────────────────
+
     /**
-     * Convert FTP path (/folder/a.txt) → SAF Uri for file.
+     * Walks the FTP path segment-by-segment through SAF, always using rootUri
+     * as the tree Uri in buildChildDocumentsUriUsingTree().
+     *
+     * Returns a document Uri on success, null if any segment is not found.
      */
-    private Uri resolveDocumentUri() {
-    try {
-        String clean = path.replaceAll("/+", "/");
-        if (clean.equals("/")) return rootUri;
+    Uri resolveDocumentUri() {
+        try {
+            String clean = path.replaceAll("/+", "/");
 
-        Uri current = rootUri;
-        String[] parts = clean.split("/");
+            // Root maps directly to the tree root document.
+            if (clean.equals("/")) return rootUri;
 
-        for (String part : parts) {
-            if (part == null || part.isEmpty()) continue;
+            // Start from the root document id.
+            String currentDocId = DocumentsContract.getDocumentId(rootUri);
 
-            Uri childrenUri =
-                    DocumentsContract.buildChildDocumentsUriUsingTree(
-                            current,
-                            DocumentsContract.getDocumentId(current)
-                    );
+            String[] parts = clean.split("/");
+            Uri result = null;
 
-            Cursor c = resolver.query(
-                    childrenUri,
-                    new String[]{
-                            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                            DocumentsContract.Document.COLUMN_DISPLAY_NAME
-                    },
-                    null, null, null
-            );
+            for (String part : parts) {
+                if (part == null || part.isEmpty()) continue;
 
-            if (c == null) return null;
+                // BUG 1 FIX: always use rootUri (tree) as the first argument.
+                Uri childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+                        rootUri,        // ← tree Uri, constant throughout
+                        currentDocId    // ← current folder's document id
+                );
 
-            Uri next = null;
+                try (Cursor c = resolver.query(
+                        childrenUri,
+                        new String[]{
+                                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                                DocumentsContract.Document.COLUMN_DISPLAY_NAME
+                        },
+                        null, null, null)) {
 
-            while (c.moveToNext()) {
-                String docId = c.getString(0);
-                String name = c.getString(1);
+                    if (c == null) return null;
 
-                if (part.equals(name)) {
-                    next = DocumentsContract.buildDocumentUriUsingTree(
-                            rootUri,
-                            docId
-                    );
-                    break;
+                    String foundDocId = null;
+                    while (c.moveToNext()) {
+                        String docId = c.getString(0);
+                        String name  = c.getString(1);
+                        if (part.equals(name)) {
+                            foundDocId = docId;
+                            break;
+                        }
+                    }
+
+                    if (foundDocId == null) return null;
+
+                    currentDocId = foundDocId;
+                    result = DocumentsContract.buildDocumentUriUsingTree(rootUri, foundDocId);
                 }
             }
 
-            c.close();
+            return result;
 
-            if (next == null) return null;
-
-            current = next;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
         }
-
-        return current;
-
-    } catch (Exception e) {
-        e.printStackTrace();
-        return null;
     }
-}
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // LIST
+    // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Scans children of SAF dir for matching name.
+     * Lists direct children of this directory.
+     * Each returned SAFFileObject carries its MIME type so callers can call
+     * isDirectory() without triggering another SAF query.
      */
-    private Uri findChildUri(Uri parent, String name) {
-        Uri childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
-                parent,
-                DocumentsContract.getDocumentId(parent)
-        );
-
-        try (Cursor c = resolver.query(
-                childrenUri,
-                new String[]{
-                        DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                        DocumentsContract.Document.COLUMN_DISPLAY_NAME
-                },
-                null, null, null)) {
-
-            if (c == null) return null;
-
-            while (c.moveToNext()) {
-                String docId = c.getString(0);
-                String childName = c.getString(1);
-
-                if (name.equals(childName)) {
-                    return DocumentsContract.buildDocumentUriUsingTree(rootUri, docId);
-                }
-            }
-        }
-        return null;
-    }
-
     public List<SAFFileObject> list() throws IOException {
         Uri doc = resolveDocumentUri();
         if (doc == null) throw new IOException("Directory not found: " + path);
 
-        Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(
-                doc,
-                DocumentsContract.getDocumentId(doc)
+        // Derive document id from the resolved document Uri.
+        String docId = DocumentsContract.getDocumentId(doc);
+        if (docId == null) {
+            // Fallback for root where getDocumentId on a tree Uri returns the root id.
+            docId = DocumentsContract.getTreeDocumentId(rootUri);
+        }
+
+        // BUG 2 FIX: use rootUri (tree) as the first argument, not `doc`.
+        Uri childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+                rootUri,  // ← tree Uri, always
+                docId
         );
 
         List<SAFFileObject> result = new ArrayList<>();
 
-        try (Cursor c = resolver.query(children,
-                new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                        DocumentsContract.Document.COLUMN_DISPLAY_NAME},
+        // BUG 3 FIX: also fetch MIME_TYPE here so isDirectory() is free.
+        try (Cursor c = resolver.query(childrenUri,
+                new String[]{
+                        DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                        DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                        DocumentsContract.Document.COLUMN_MIME_TYPE      // ← added
+                },
                 null, null, null)) {
 
             if (c != null) {
                 while (c.moveToNext()) {
-                    String docId = c.getString(0);
+                    // String docIdChild = c.getString(0); // available if needed
                     String name = c.getString(1);
+                    String mime = c.getString(2);
 
-                    result.add(new SAFFileObject(
-                            context,
-                            rootUri,
-                            path.equals("/") ? "/" + name : path + "/" + name
-                    ));
+                    String childPath = path.equals("/") ? "/" + name : path + "/" + name;
+
+                    result.add(new SAFFileObject(context, rootUri, childPath, mime));
                 }
             }
+        } catch (Exception e) {
+            throw new IOException("Failed to list: " + path, e);
         }
 
         return result;
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // READ / WRITE / DELETE / MKDIR / RENAME
+    // ─────────────────────────────────────────────────────────────────────────
 
     public InputStream openInput() throws IOException {
         Uri doc = resolveDocumentUri();
@@ -210,12 +222,9 @@ public class SAFFileObject {
 
     public OutputStream openOutput(boolean append) throws IOException {
         Uri doc = resolveDocumentUri();
-
         if (doc == null) {
-            // Must create the file
             doc = createFile(path);
         }
-
         String mode = append ? "wa" : "w";
         return resolver.openOutputStream(doc, mode);
     }
@@ -231,69 +240,47 @@ public class SAFFileObject {
         return true;
     }
 
-    /**
-     * SAF create file
-     */
-    private Uri createFile(String fullPath) throws IOException {
-        String parentPath = fullPath.substring(0, fullPath.lastIndexOf('/'));
-        String filename = fullPath.substring(fullPath.lastIndexOf('/') + 1);
-
-        SAFFileObject parent = new SAFFileObject(context, rootUri, parentPath);
-
-        Uri parentDoc = parent.resolveDocumentUri();
-        if (parentDoc == null)
-            throw new IOException("Parent folder does not exist: " + parentPath);
-
-        String mime = "application/octet-stream";
-
-        Uri newDoc = DocumentsContract.createDocument(
-                resolver,
-                parentDoc,
-                mime,
-                filename
-        );
-
-        if (newDoc == null)
-            throw new IOException("Failed to create file: " + filename);
-
-        return newDoc;
-    }
-
-    /**
-     * SAF create folder
-     */
-    private Uri createFolder(String fullPath) throws IOException {
-        String parentPath = fullPath.substring(0, fullPath.lastIndexOf('/'));
-        String folderName = fullPath.substring(fullPath.lastIndexOf('/') + 1);
-
-        SAFFileObject parent = new SAFFileObject(context, rootUri, parentPath);
-
-        Uri parentDoc = parent.resolveDocumentUri();
-        if (parentDoc == null)
-            throw new IOException("Parent folder does not exist: " + parentPath);
-
-        Uri newDoc = DocumentsContract.createDocument(
-                resolver,
-                parentDoc,
-                DocumentsContract.Document.MIME_TYPE_DIR,
-                folderName
-        );
-
-        if (newDoc == null)
-            throw new IOException("Failed to create folder: " + folderName);
-
-        return newDoc;
-    }
-
-    public boolean renameFrom(String newName) throws IOException {
+    public boolean renameTo(String newPath) throws IOException {
+        String newName = newPath.substring(newPath.lastIndexOf("/") + 1);
         Uri doc = resolveDocumentUri();
         if (doc == null) throw new IOException("File not found: " + path);
-
         return DocumentsContract.renameDocument(resolver, doc, newName) != null;
     }
 
-    public boolean renameTo(String newPath) throws IOException {
-        String newName = newPath.substring(newPath.lastIndexOf("/") + 1);
-        return renameFrom(newName);
+    // ─────────────────────────────────────────────────────────────────────────
+    // PRIVATE HELPERS
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private Uri createFile(String fullPath) throws IOException {
+        String parentPath = fullPath.substring(0, fullPath.lastIndexOf('/'));
+        String filename   = fullPath.substring(fullPath.lastIndexOf('/') + 1);
+
+        Uri parentDoc = new SAFFileObject(context, rootUri,
+                parentPath.isEmpty() ? "/" : parentPath).resolveDocumentUri();
+        if (parentDoc == null)
+            throw new IOException("Parent folder does not exist: " + parentPath);
+
+        Uri newDoc = DocumentsContract.createDocument(
+                resolver, parentDoc, "application/octet-stream", filename);
+        if (newDoc == null)
+            throw new IOException("Failed to create file: " + filename);
+        return newDoc;
+    }
+
+    private Uri createFolder(String fullPath) throws IOException {
+        String parentPath  = fullPath.substring(0, fullPath.lastIndexOf('/'));
+        String folderName  = fullPath.substring(fullPath.lastIndexOf('/') + 1);
+
+        Uri parentDoc = new SAFFileObject(context, rootUri,
+                parentPath.isEmpty() ? "/" : parentPath).resolveDocumentUri();
+        if (parentDoc == null)
+            throw new IOException("Parent folder does not exist: " + parentPath);
+
+        Uri newDoc = DocumentsContract.createDocument(
+                resolver, parentDoc,
+                DocumentsContract.Document.MIME_TYPE_DIR, folderName);
+        if (newDoc == null)
+            throw new IOException("Failed to create folder: " + folderName);
+        return newDoc;
     }
 }

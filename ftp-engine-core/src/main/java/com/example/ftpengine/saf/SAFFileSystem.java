@@ -13,7 +13,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * SAF-backed FTP FileSystem (FTP-client compatible version)
+ * SAF-backed IFtpFileSystem implementation.
+ *
+ * list() now returns bare file names (the FTP ls-format is built in
+ * FtpCommandProcessor). isDirectory() is O(1) when the SAFFileObject
+ * was produced by list() because the mime type is fetched in the same
+ * Cursor query — no extra SAF round-trips per file.
  */
 public class SAFFileSystem implements IFtpFileSystem {
 
@@ -36,8 +41,6 @@ public class SAFFileSystem implements IFtpFileSystem {
         return getFile(path).exists();
     }
 
-    // FIX: implement isDirectory() so FtpCommandProcessor can emit the
-    // correct 'd' vs '-' prefix in LIST responses.
     @Override
     public boolean isDirectory(String path) {
         return getFile(path).isDirectory();
@@ -62,32 +65,20 @@ public class SAFFileSystem implements IFtpFileSystem {
 
     @Override
     public String[] list(String path) throws IOException {
-
         List<SAFFileObject> files = getFile(path).list();
 
-        if (files == null) {
-            return new String[0];
-        }
+        if (files == null) return new String[0];
 
         List<String> names = new ArrayList<>();
-
         for (SAFFileObject f : files) {
-
             if (f == null) continue;
-
             String p = f.getPath();
-
             if (p == null) continue;
-
             int idx = p.lastIndexOf('/');
-
-            if (idx >= 0 && idx < p.length() - 1) {
-                names.add(p.substring(idx + 1));
-            } else {
-                names.add(p);
-            }
+            names.add(idx >= 0 && idx < p.length() - 1
+                    ? p.substring(idx + 1)
+                    : p);
         }
-
         return names.toArray(new String[0]);
     }
 
@@ -97,14 +88,9 @@ public class SAFFileSystem implements IFtpFileSystem {
     public byte[] readFile(String path) throws IOException {
         try (InputStream in = getFile(path).openInput();
              ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-
             byte[] buf = new byte[8192];
             int r;
-
-            while ((r = in.read(buf)) != -1) {
-                out.write(buf, 0, r);
-            }
-
+            while ((r = in.read(buf)) != -1) out.write(buf, 0, r);
             return out.toByteArray();
         }
     }
@@ -123,11 +109,5 @@ public class SAFFileSystem implements IFtpFileSystem {
         if (path == null || path.isEmpty()) return "/";
         if (!path.startsWith("/")) path = "/" + path;
         return path.replaceAll("/+", "/");
-    }
-
-    private String extractName(String fullPath) {
-        if (fullPath == null) return "";
-        int idx = fullPath.lastIndexOf('/');
-        return (idx >= 0) ? fullPath.substring(idx + 1) : fullPath;
     }
 }
