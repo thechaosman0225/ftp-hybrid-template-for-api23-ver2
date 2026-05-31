@@ -36,6 +36,13 @@ public class SAFFileSystem implements IFtpFileSystem {
         return getFile(path).exists();
     }
 
+    // FIX: implement isDirectory() so FtpCommandProcessor can emit the
+    // correct 'd' vs '-' prefix in LIST responses.
+    @Override
+    public boolean isDirectory(String path) {
+        return getFile(path).isDirectory();
+    }
+
     @Override
     public boolean mkdir(String path) throws IOException {
         return getFile(path).mkdir();
@@ -51,39 +58,38 @@ public class SAFFileSystem implements IFtpFileSystem {
         return getFile(from).renameTo(to);
     }
 
-    /* ===================== LIST (FIXED FOR FTP CLIENTS) ===================== */
+    /* ===================== LIST ===================== */
 
     @Override
-public String[] list(String path) throws IOException {
+    public String[] list(String path) throws IOException {
 
-    List<SAFFileObject> files =
-            getFile(path).list();
+        List<SAFFileObject> files = getFile(path).list();
 
-    if (files == null) {
-        return new String[0];
-    }
-
-    List<String> names = new ArrayList<>();
-
-    for (SAFFileObject f : files) {
-
-        if (f == null) continue;
-
-        String p = f.getPath();
-
-        if (p == null) continue;
-
-        int idx = p.lastIndexOf('/');
-
-        if (idx >= 0 && idx < p.length() - 1) {
-            names.add(p.substring(idx + 1));
-        } else {
-            names.add(p);
+        if (files == null) {
+            return new String[0];
         }
-    }
 
-    return names.toArray(new String[0]);
-}
+        List<String> names = new ArrayList<>();
+
+        for (SAFFileObject f : files) {
+
+            if (f == null) continue;
+
+            String p = f.getPath();
+
+            if (p == null) continue;
+
+            int idx = p.lastIndexOf('/');
+
+            if (idx >= 0 && idx < p.length() - 1) {
+                names.add(p.substring(idx + 1));
+            } else {
+                names.add(p);
+            }
+        }
+
+        return names.toArray(new String[0]);
+    }
 
     /* ===================== READ / WRITE ===================== */
 

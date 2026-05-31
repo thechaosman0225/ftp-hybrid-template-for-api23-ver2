@@ -17,6 +17,14 @@ public interface IFtpFileSystem {
     boolean exists(String path);
 
     /**
+     * Check if a path is a directory.
+     *
+     * @param path path relative to the FTP root
+     * @return true if the path exists and is a directory
+     */
+    boolean isDirectory(String path);
+
+    /**
      * Delete a file or directory.
      *
      * @param path path relative to the FTP root

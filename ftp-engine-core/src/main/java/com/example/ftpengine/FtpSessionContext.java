@@ -5,7 +5,13 @@ import java.net.Socket;
 
 /**
  * Holds FTP session state for each connected client.
- * FIXED: proper passive mode lifecycle management.
+ *
+ * FIX: passiveDataSocket is now volatile so that the background thread's
+ * write in openPasv() is immediately visible to the polling loop in
+ * waitForData(). Without volatile, the JVM/Android runtime is free to
+ * cache the field in a register, meaning waitForData() could spin all
+ * 200 iterations seeing null even after the accept thread has assigned
+ * the socket — causing the spurious "550 LIST failed" error.
  */
 public class FtpSessionContext {
 
@@ -19,13 +25,14 @@ public class FtpSessionContext {
     public int dataPort = -1;
     public Socket activeDataSocket = null;
 
-    /* ===================== PASSIVE MODE (FIXED) ===================== */
+    /* ===================== PASSIVE MODE ===================== */
 
-    // FIX: MUST store server socket (not only client socket)
+    // Must store the server socket so it can be closed on cleanup.
     public ServerSocket passiveServerSocket = null;
 
-    // client connection accepted from ServerSocket
-    public Socket passiveDataSocket = null;
+    // FIX: volatile ensures the write by the accept-thread in openPasv()
+    // is visible to the polling loop in waitForData() on the main thread.
+    public volatile Socket passiveDataSocket = null;
 
     public int pasvPort = -1;
 
@@ -46,7 +53,7 @@ public class FtpSessionContext {
             activeDataSocket = null;
         }
 
-        /* PASSIVE cleanup (FIXED) */
+        /* PASSIVE cleanup */
         if (passiveDataSocket != null) {
             try { passiveDataSocket.close(); } catch (Exception ignored) {}
             passiveDataSocket = null;

@@ -6,6 +6,8 @@ import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.Locale;
 
 public class FtpCommandProcessor {
@@ -146,12 +148,15 @@ public class FtpCommandProcessor {
             c.passiveDataSocket = null;
             c.pasvPort = ss.getLocalPort();
 
+            // Background thread accepts the data connection from FileZilla.
+            // passiveDataSocket is volatile so the write is immediately
+            // visible to waitForData() polling on the command thread.
             new Thread(() -> {
                 try {
                     Socket socket = ss.accept();
                     socket.setKeepAlive(true);
                     socket.setTcpNoDelay(true);
-                    c.passiveDataSocket = socket;
+                    c.passiveDataSocket = socket; // volatile write — visible immediately
                 } catch (Exception ignored) {}
             }).start();
 
@@ -179,6 +184,9 @@ public class FtpCommandProcessor {
         try {
             reply(s, "150 Opening data connection");
 
+            // waitForData() reads the volatile passiveDataSocket field.
+            // Because the field is volatile, this loop is guaranteed to
+            // observe the write made by the accept-thread in openPasv().
             Socket d = waitForData(c);
             if (d == null) {
                 reply(s, "425 No data connection");
@@ -189,9 +197,28 @@ public class FtpCommandProcessor {
 
             String[] files = fs.list(c.cwd);
             if (files != null) {
-                for (String f : files) {
-                    if (f == null) continue;
-                    sb.append(f).append("\r\n");
+                // FIX: emit proper Unix ls -l format so FileZilla can parse
+                // the directory listing. Bare filenames are not valid FTP
+                // LIST output and cause clients to fail silently.
+                String timestamp = new SimpleDateFormat("MMM dd HH:mm", Locale.US)
+                        .format(new Date());
+
+                for (String name : files) {
+                    if (name == null || name.isEmpty()) continue;
+
+                    String entryPath = c.cwd.equals("/")
+                            ? "/" + name
+                            : c.cwd + "/" + name;
+
+                    boolean isDir = fs.isDirectory(entryPath);
+
+                    // Format: type+perms links owner group size date name
+                    sb.append(isDir ? "drwxr-xr-x" : "-rw-r--r--")
+                      .append(" 1 ftp ftp 0 ")
+                      .append(timestamp)
+                      .append(" ")
+                      .append(name)
+                      .append("\r\n");
                 }
             }
 
@@ -202,6 +229,7 @@ public class FtpCommandProcessor {
             reply(s, "226 Transfer complete");
 
         } catch (Exception e) {
+            e.printStackTrace();
             reply(s, "550 LIST failed");
         }
     }
@@ -268,6 +296,10 @@ public class FtpCommandProcessor {
 
     /* ===================== SAFE WAIT ===================== */
 
+    /**
+     * Polls for the passive data socket set by the background accept-thread.
+     * Works correctly because passiveDataSocket is volatile in FtpSessionContext.
+     */
     private Socket waitForData(FtpSessionContext c) {
 
         for (int i = 0; i < 200; i++) {

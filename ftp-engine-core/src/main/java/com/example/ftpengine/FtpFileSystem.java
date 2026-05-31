@@ -32,6 +32,13 @@ public class FtpFileSystem implements IFtpFileSystem {
         return resolve(path).exists();
     }
 
+    // FIX: implement isDirectory() so FtpCommandProcessor can emit the
+    // correct 'd' vs '-' prefix in LIST responses.
+    @Override
+    public boolean isDirectory(String path) {
+        return resolve(path).isDirectory();
+    }
+
     @Override
     public boolean mkdir(String path) throws IOException {
         return resolve(path).mkdirs();
