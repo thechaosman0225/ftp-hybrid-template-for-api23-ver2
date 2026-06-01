@@ -5,64 +5,120 @@
     android:orientation="vertical"
     android:padding="16dp">
 
-    <Button
-        android:id="@+id/btnChooseFolder"
+    <!-- FTP Root Directory Information -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Choose FTP Root Folder" />
+        android:orientation="vertical"
+        android:background="@android:drawable/editbox_background"
+        android:padding="12dp"
+        android:layout_marginBottom="12dp">
 
-    <Button
-        android:id="@+id/btnStartServer"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="Start FTP Server" />
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="FTP Root Directory"
+            android:textStyle="bold"
+            android:textSize="14sp"
+            android:layout_marginBottom="4dp" />
 
-    <Button
-        android:id="@+id/btnStopServer"
+        <TextView
+            android:id="@+id/txtRootPath"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Loading..."
+            android:textSize="12sp"
+            android:textColor="@android:color/darker_gray"
+            android:scrollbars="horizontal"
+            android:maxLines="2" />
+    </LinearLayout>
+
+    <!-- Server Control Section -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="8dp">
+
+        <Button
+            android:id="@+id/btnStartServer"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp"
+            android:text="Start Server"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/btnStopServer"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="4dp"
+            android:text="Stop Server"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <!-- Status Log -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Server Log"
+        android:textStyle="bold"
+        android:textSize="14sp"
         android:layout_marginTop="8dp"
-        android:text="Stop FTP Server" />
+        android:layout_marginBottom="4dp" />
 
     <ScrollView
         android:id="@+id/scrollView"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:layout_marginTop="12dp">
+        android:layout_weight="0.5"
+        android:layout_marginBottom="12dp">
 
         <TextView
             android:id="@+id/txtLog"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textSize="14sp" />
+            android:textSize="12sp"
+            android:textColor="@android:color/darker_gray"
+            android:padding="8dp"
+            android:background="@android:drawable/editbox_background" />
     </ScrollView>
 
+    <!-- Add FTP User Section -->
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Add FTP User"
         android:textStyle="bold"
-        android:paddingTop="8dp" />
+        android:textSize="14sp"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="4dp" />
 
     <EditText
         android:id="@+id/etUsername"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="Username" />
+        android:hint="Username"
+        android:inputType="text"
+        android:textSize="14sp"
+        android:layout_marginBottom="4dp" />
 
     <EditText
         android:id="@+id/etPassword"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:hint="Password"
-        android:inputType="textPassword" />
+        android:inputType="textPassword"
+        android:textSize="14sp"
+        android:layout_marginBottom="8dp" />
 
     <Button
         android:id="@+id/btnAddUser"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="Add User" />
+        android:text="Add User"
+        android:textSize="12sp" />
+
 </LinearLayout>
