@@ -1,80 +1,62 @@
 package com.example.ftpsample;
 
-import android.net.Uri;
 import android.os.Bundle;
 import android.widget.*;
-import androidx.activity.result.ActivityResultLauncher;
-import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.example.ftp.FtpEngineHybrid;
-import com.example.ftp.AndroidUtils;
+import com.example.ftpengine.FtpFileSystem;
 import com.example.ftpengine.FtpUserManager;
-import com.example.ftpengine.saf.SAFFileSystem;
+import com.example.ftpengine.IFtpFileSystem;
 
+import java.io.File;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+/**
+ * MainActivity for FTP Server with FtpFileSystem backend.
+ * 
+ * Updated to use FtpFileSystem (java.io.File) instead of SAF.
+ * Removes folder picker and uses app's files directory directly.
+ */
 public class MainActivity extends AppCompatActivity {
 
-    private SAFFileSystem safFs;
     private FtpEngineHybrid ftpEngine;
     private FtpUserManager userManager;
+    private File ftpRoot;
 
     // FIX 1: Single-thread executor serialises start/stop and keeps them off
     // the main thread. A bare new Thread() per click allowed a slow start and
     // a fast stop to race and leave MINA half-open on API 23.
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
-    private ActivityResultLauncher<android.content.Intent> folderPickerLauncher;
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        // Initialize FTP root directory
+        ftpRoot = getFilesDir();
+
         EditText etUsername   = findViewById(R.id.etUsername);
         EditText etPassword   = findViewById(R.id.etPassword);
-        Button btnChooseFolder = findViewById(R.id.btnChooseFolder);
         Button btnStart       = findViewById(R.id.btnStartServer);
         Button btnStop        = findViewById(R.id.btnStopServer);
         Button btnAddUser     = findViewById(R.id.btnAddUser);
         TextView txtLog       = findViewById(R.id.txtLog);
+        TextView txtRootPath  = findViewById(R.id.txtRootPath);
         ScrollView scrollView = findViewById(R.id.scrollView);
 
         LogUtils logger = new LogUtils(txtLog, scrollView);
 
-        /* ===================== SAF Picker ===================== */
-
-        folderPickerLauncher = registerForActivityResult(
-                new ActivityResultContracts.StartActivityForResult(),
-                result -> {
-                    if (result.getResultCode() == RESULT_OK && result.getData() != null) {
-
-                        Uri treeUri = result.getData().getData();
-
-                        if (treeUri != null) {
-                            AndroidUtils.takePersistablePermission(this, treeUri);
-
-                            safFs = new SAFFileSystem(this, treeUri);
-
-                            logger.log("Selected FTP root: " + treeUri);
-                        }
-                    }
-                });
-
-        btnChooseFolder.setOnClickListener(v ->
-                folderPickerLauncher.launch(AndroidUtils.requestSAFRootFolder())
-        );
+        // Display FTP root path
+        if (txtRootPath != null) {
+            txtRootPath.setText("FTP Root: " + ftpRoot.getAbsolutePath());
+        }
 
         /* ===================== START SERVER ===================== */
 
         btnStart.setOnClickListener(v -> {
-
-            if (safFs == null) {
-                Toast.makeText(this, "Please choose a folder first", Toast.LENGTH_SHORT).show();
-                return;
-            }
 
             if (ftpEngine != null) {
                 Toast.makeText(this, "FTP server already running", Toast.LENGTH_SHORT).show();
@@ -90,7 +72,8 @@ public class MainActivity extends AppCompatActivity {
 
             executor.submit(() -> {
                 try {
-                    FtpEngineHybrid engine = new FtpEngineHybrid(this, safFs);
+                    IFtpFileSystem ftpFs = new FtpFileSystem(ftpRoot);
+                    FtpEngineHybrid engine = new FtpEngineHybrid(this, ftpFs);
                     engine.start(2121);
 
                     // Only promote to field after a successful start so that
@@ -101,6 +84,7 @@ public class MainActivity extends AppCompatActivity {
 
                     runOnUiThread(() -> {
                         logger.log("FTP server started on port 2121");
+                        logger.log("Root directory: " + ftpRoot.getAbsolutePath());
                         setServerButtonsEnabled(btnStart, btnStop, true);
                     });
 

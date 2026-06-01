@@ -5,8 +5,7 @@ import android.util.Log;
 
 import com.example.ftpengine.FtpCommandProcessor;
 import com.example.ftpengine.FtpUserManager;
-import com.example.ftpengine.saf.SAFFileSystem;
-
+import com.example.ftpengine.IFtpFileSystem;
 
 import org.apache.mina.filter.codec.ProtocolCodecFilter;
 import org.apache.mina.filter.codec.textline.TextLineCodecFactory;
@@ -19,6 +18,12 @@ import java.net.NetworkInterface;
 import java.nio.charset.StandardCharsets;
 import java.util.Enumeration;
 
+/**
+ * FTP Engine Hybrid - Main entry point for the FTP server.
+ * 
+ * Updated to accept IFtpFileSystem interface instead of SAFFileSystem,
+ * allowing support for both SAFFileSystem and FtpFileSystem backends.
+ */
 public class FtpEngineHybrid {
 
     private static final String TAG = "FtpEngineHybrid";
@@ -28,7 +33,13 @@ public class FtpEngineHybrid {
     private final FtpUserManager userManager;
     private final String serverIp;
 
-    public FtpEngineHybrid(Context context, SAFFileSystem fs) {
+    /**
+     * Initialize FTP Engine with any IFtpFileSystem implementation.
+     * 
+     * @param context Android context
+     * @param fs Filesystem implementation (can be SAFFileSystem, FtpFileSystem, or custom)
+     */
+    public FtpEngineHybrid(Context context, IFtpFileSystem fs) {
 
         this.serverIp = resolveIp();
         this.userManager = new FtpUserManager();

@@ -5,7 +5,6 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Intent;
-import android.net.Uri;
 import android.os.Build;
 import android.os.IBinder;
 
@@ -13,16 +12,18 @@ import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 
 import com.example.ftp.FtpEngineHybrid;
-import com.example.ftp.AndroidUtils;
-import com.example.ftpengine.saf.SAFFileSystem;
+import com.example.ftpengine.FtpFileSystem;
+import com.example.ftpengine.IFtpFileSystem;
+
+import java.io.File;
 
 /**
  * Foreground FTP Server Service
  * Keeps the FTP server alive in the background.
+ * 
+ * Updated to use FtpFileSystem backend (java.io.File) instead of SAF.
  */
 public class FtpServerService extends Service {
-
-    public static final String EXTRA_TREE_URI = "tree_uri";
 
     private static final String CHANNEL_ID = "ftp_server_channel";
     private static final int NOTIFICATION_ID = 1001;
@@ -40,27 +41,22 @@ public class FtpServerService extends Service {
 
         try {
 
-            // SAF folder URI from MainActivity
-            String uriString = intent.getStringExtra(EXTRA_TREE_URI);
-
-            if (uriString == null) {
-                stopSelf();
-                return START_NOT_STICKY;
-            }
-
-            Uri treeUri = Uri.parse(uriString);
-
-            // Permission already granted by MainActivity
-            SAFFileSystem safFs = new SAFFileSystem(this, treeUri);
+            // Initialize FTP filesystem with app's files directory
+            // You can customize this path based on your needs:
+            // - getFilesDir() — private app directory (recommended)
+            // - getCacheDir() — temporary files (may be cleared)
+            // - getExternalFilesDir(null) — external storage (requires permission)
+            File ftpRoot = getFilesDir();
+            IFtpFileSystem ftpFs = new FtpFileSystem(ftpRoot);
 
             // Start FTP engine
-            ftpEngine = new FtpEngineHybrid(this, safFs);
+            ftpEngine = new FtpEngineHybrid(this, ftpFs);
             ftpEngine.start(2121);
 
             // Start foreground notification
             startForeground(
                     NOTIFICATION_ID,
-                    buildNotification("FTP Server running on port 2121")
+                    buildNotification("FTP Server running on port 2121 at: " + ftpRoot.getAbsolutePath())
             );
 
         } catch (Exception e) {
