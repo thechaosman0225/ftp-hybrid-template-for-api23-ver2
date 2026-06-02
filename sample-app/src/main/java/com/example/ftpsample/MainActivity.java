@@ -1,8 +1,13 @@
 package com.example.ftpsample;
 
+import android.Manifest;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
 import com.example.ftp.FtpEngineHybrid;
 import com.example.ftpengine.FtpFileSystem;
@@ -16,10 +21,14 @@ import java.util.concurrent.Executors;
 /**
  * MainActivity for FTP Server with FtpFileSystem backend.
  * 
- * Updated to use FtpFileSystem (java.io.File) instead of SAF.
- * Removes folder picker and uses app's files directory directly.
+ * Updated to:
+ * - Use external storage (/storage/emulated/0/FTP) instead of app-private directory
+ * - Request necessary storage permissions
+ * - Support Android FTP clients (RCKit, WiFi File Transfer, etc.)
  */
 public class MainActivity extends AppCompatActivity {
+
+    private static final int STORAGE_PERMISSION_REQUEST = 42;
 
     private FtpEngineHybrid ftpEngine;
     private FtpUserManager userManager;
@@ -35,9 +44,6 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // Initialize FTP root directory
-        ftpRoot = getFilesDir();
-
         EditText etUsername   = findViewById(R.id.etUsername);
         EditText etPassword   = findViewById(R.id.etPassword);
         Button btnStart       = findViewById(R.id.btnStartServer);
@@ -49,6 +55,16 @@ public class MainActivity extends AppCompatActivity {
 
         LogUtils logger = new LogUtils(txtLog, scrollView);
 
+        // Check and request storage permissions
+        if (!hasStoragePermissions()) {
+            requestStoragePermissions();
+            logger.log("Storage permissions requested. Please grant them to continue.");
+            return;
+        }
+
+        // Initialize FTP root directory (external storage)
+        ftpRoot = StorageUtils.getFtpDirectory(this);
+
         // Display FTP root path
         if (txtRootPath != null) {
             txtRootPath.setText("FTP Root: " + ftpRoot.getAbsolutePath());
@@ -57,6 +73,12 @@ public class MainActivity extends AppCompatActivity {
         /* ===================== START SERVER ===================== */
 
         btnStart.setOnClickListener(v -> {
+
+            if (!hasStoragePermissions()) {
+                Toast.makeText(this, "Storage permissions required", Toast.LENGTH_SHORT).show();
+                requestStoragePermissions();
+                return;
+            }
 
             if (ftpEngine != null) {
                 Toast.makeText(this, "FTP server already running", Toast.LENGTH_SHORT).show();
@@ -85,12 +107,14 @@ public class MainActivity extends AppCompatActivity {
                     runOnUiThread(() -> {
                         logger.log("FTP server started on port 2121");
                         logger.log("Root directory: " + ftpRoot.getAbsolutePath());
+                        logger.log("Ready for FTP clients (FileZilla, RCKit, etc.)");
                         setServerButtonsEnabled(btnStart, btnStop, true);
                     });
 
                 } catch (Exception e) {
                     runOnUiThread(() -> {
                         logger.log("Start failed: " + e.getMessage());
+                        e.printStackTrace();
                         setServerButtonsEnabled(btnStart, btnStop, true);
                     });
                 }
@@ -151,6 +175,70 @@ public class MainActivity extends AppCompatActivity {
             etUsername.setText("");
             etPassword.setText("");
         });
+    }
+
+    /**
+     * Check if we have required storage permissions.
+     */
+    private boolean hasStoragePermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Android 11+ requires MANAGE_EXTERNAL_STORAGE
+            return ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.MANAGE_EXTERNAL_STORAGE
+            ) == PackageManager.PERMISSION_GRANTED;
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            // Android 6-10 requires READ/WRITE_EXTERNAL_STORAGE
+            return ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE
+            ) == PackageManager.PERMISSION_GRANTED
+                    && ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.READ_EXTERNAL_STORAGE
+            ) == PackageManager.PERMISSION_GRANTED;
+        }
+        return true; // Pre-Android 6 doesn't require runtime permissions
+    }
+
+    /**
+     * Request storage permissions from the user.
+     */
+    private void requestStoragePermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            ActivityCompat.requestPermissions(
+                    this,
+                    new String[]{Manifest.permission.MANAGE_EXTERNAL_STORAGE},
+                    STORAGE_PERMISSION_REQUEST
+            );
+        } else {
+            ActivityCompat.requestPermissions(
+                    this,
+                    new String[]{
+                            Manifest.permission.READ_EXTERNAL_STORAGE,
+                            Manifest.permission.WRITE_EXTERNAL_STORAGE
+                    },
+                    STORAGE_PERMISSION_REQUEST
+            );
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == STORAGE_PERMISSION_REQUEST) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                // Permissions granted, reinitialize
+                ftpRoot = StorageUtils.getFtpDirectory(this);
+                TextView txtRootPath = findViewById(R.id.txtRootPath);
+                if (txtRootPath != null) {
+                    txtRootPath.setText("FTP Root: " + ftpRoot.getAbsolutePath());
+                }
+                Toast.makeText(this, "Permissions granted!", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "Permissions denied. App may not work properly.", Toast.LENGTH_SHORT).show();
+            }
+        }
     }
 
     // FIX 4: Shut down the executor and engine when the activity is destroyed.

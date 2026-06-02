@@ -21,7 +21,8 @@ import java.io.File;
  * Foreground FTP Server Service
  * Keeps the FTP server alive in the background.
  * 
- * Updated to use FtpFileSystem backend (java.io.File) instead of SAF.
+ * Updated to use external storage (/storage/emulated/0/FTP) instead of app-private directory.
+ * Compatible with Android FTP clients (RCKit, WiFi File Transfer, FileZilla, etc.)
  */
 public class FtpServerService extends Service {
 
@@ -41,12 +42,15 @@ public class FtpServerService extends Service {
 
         try {
 
-            // Initialize FTP filesystem with app's files directory
-            // You can customize this path based on your needs:
-            // - getFilesDir() — private app directory (recommended)
-            // - getCacheDir() — temporary files (may be cleared)
-            // - getExternalFilesDir(null) — external storage (requires permission)
-            File ftpRoot = getFilesDir();
+            // Initialize FTP filesystem with external storage directory
+            // This makes files accessible to FTP clients without root access
+            // Path: /storage/emulated/0/FTP or similar
+            File ftpRoot = StorageUtils.getFtpDirectory(this);
+            
+            if (!ftpRoot.canRead() || !ftpRoot.canWrite()) {
+                throw new RuntimeException("Cannot access FTP directory: " + ftpRoot.getAbsolutePath());
+            }
+
             IFtpFileSystem ftpFs = new FtpFileSystem(ftpRoot);
 
             // Start FTP engine
@@ -56,7 +60,7 @@ public class FtpServerService extends Service {
             // Start foreground notification
             startForeground(
                     NOTIFICATION_ID,
-                    buildNotification("FTP Server running on port 2121 at: " + ftpRoot.getAbsolutePath())
+                    buildNotification("FTP Server at: " + ftpRoot.getAbsolutePath())
             );
 
         } catch (Exception e) {
