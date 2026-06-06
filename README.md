@@ -6,40 +6,6 @@ Tested with FileZilla; supports passive mode, binary transfers, and multiple fil
 
 ---
 
-## 🆕 Recent Changes (v2.0)
-
-This version has been **refactored to use FtpFileSystem backend** for simpler integration as an Android library dependency:
-
-- ✅ **Removed SAF dependency** from the sample app — uses app's `getFilesDir()` directly
-- ✅ **Flexible backend support** — `FtpEngineHybrid` now accepts `IFtpFileSystem` interface
-- ✅ **Simplified embedding** — no folder picker or persistable URIs needed
-- ✅ **Backward compatible** — still supports SAFFileSystem if you need it
-
-### Migration from v1.x to v2.0
-
-If you were using the old SAF-based version:
-
-**Before (v1.x):**
-```java
-SAFFileSystem fs = new SAFFileSystem(context, treeUri);
-FtpEngineHybrid engine = new FtpEngineHybrid(context, fs);
-```
-
-**After (v2.0):**
-```java
-// Option 1: File-based (recommended for simplicity)
-File ftpRoot = context.getFilesDir();
-IFtpFileSystem fs = new FtpFileSystem(ftpRoot);
-FtpEngineHybrid engine = new FtpEngineHybrid(context, fs);
-
-// Option 2: Still supports SAF if needed
-Uri treeUri = ...; // from folder picker
-IFtpFileSystem fs = new SAFFileSystem(context, treeUri);
-FtpEngineHybrid engine = new FtpEngineHybrid(context, fs);
-```
-
----
-
 ## Module Structure
 
 ```
@@ -395,3 +361,36 @@ Apache License 2.0 — see [LICENSE](LICENSE).
 ## Support
 
 For issues, questions, or suggestions, please open a GitHub Issue or check the sample app for working examples.
+---
+
+## 🆕 Recent Changes (v2.0)
+
+This version has been **refactored to use FtpFileSystem backend** for simpler integration as an Android library dependency:
+
+- ✅ **Removed SAF dependency** from the sample app — uses app's `getFilesDir()` directly
+- ✅ **Flexible backend support** — `FtpEngineHybrid` now accepts `IFtpFileSystem` interface
+- ✅ **Simplified embedding** — no folder picker or persistable URIs needed
+- ✅ **Backward compatible** — still supports SAFFileSystem if you need it
+
+### Migration from v1.x to v2.0
+
+If you were using the old SAF-based version:
+
+**Before (v1.x):**
+```java
+SAFFileSystem fs = new SAFFileSystem(context, treeUri);
+FtpEngineHybrid engine = new FtpEngineHybrid(context, fs);
+```
+
+**After (v2.0):**
+```java
+// Option 1: File-based (recommended for simplicity)
+File ftpRoot = context.getFilesDir();
+IFtpFileSystem fs = new FtpFileSystem(ftpRoot);
+FtpEngineHybrid engine = new FtpEngineHybrid(context, fs);
+
+// Option 2: Still supports SAF if needed
+Uri treeUri = ...; // from folder picker
+IFtpFileSystem fs = new SAFFileSystem(context, treeUri);
+FtpEngineHybrid engine = new FtpEngineHybrid(context, fs);
+```
